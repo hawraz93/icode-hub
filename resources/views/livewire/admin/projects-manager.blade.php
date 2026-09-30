@@ -142,7 +142,7 @@
         <x-slot name="footer">
             <div class="flex items-center justify-end gap-3">
                 <x-button flat label="پاشگەزبوونەوە" x-on:click="close" />
-                <x-button primary label="{{ $editingId ? 'نوێکردنەوە' : 'تۆمارکردنی پڕۆژە' }}" wire:click="save" />
+                <x-button primary label="{{ $editingId ? 'نوێکردنەوە' : 'تۆمارکردنی پڕۆژە' }}" wire:click="save" spinner="save" />
             </div>
         </x-slot>
     </x-modal-card>

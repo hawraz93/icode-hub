@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\ActivityReminder;
 use App\Models\Subscription;
 use App\Services\DomainExpiryLookup;
 use App\Services\TelegramNotifier;
@@ -27,6 +28,7 @@ class CheckDomainExpiry extends Command
             ->get();
 
         $mismatches = [];
+        $autoRenewed = [];
         $rows = [];
 
         foreach ($domains as $sub) {
@@ -45,15 +47,52 @@ class CheckDomainExpiry extends Command
             $registry = $result['expiry']?->format('Y-m-d') ?? ($result['supported'] ? 'not found' : 'no RDAP');
             $rows[] = [$sub->domain_name, $sub->expiry_date->format('Y-m-d'), $registry];
 
-            if ($sub->has_registry_mismatch) {
+            if (! $sub->has_registry_mismatch) {
+                continue;
+            }
+
+            // Registry is later and in the future: the domain was renewed (auto-renew or manually), so follow it.
+            if ($sub->registry_expiry_date->gt($sub->expiry_date) && $sub->registry_expiry_date->isFuture()) {
+                $wasPaid = $sub->renewal_stage >= Subscription::STAGE_PAID;
+                $old = $sub->expiry_date->format('Y-m-d');
+                $sub->update([
+                    'expiry_date' => $sub->registry_expiry_date->format('Y-m-d'),
+                    'status' => 'active',
+                    'renewal_stage' => Subscription::STAGE_NONE,
+                    'stage_updated_at' => now(),
+                    'last_reminded_at' => null,
+                ]);
+                ActivityReminder::create([
+                    'client_id' => $sub->client_id,
+                    'subscription_id' => $sub->id,
+                    'type' => 'subscription_renewed',
+                    'channel' => 'system',
+                    'message' => "خۆکار لە تۆمارگە: {$old} ← {$sub->expiry_date->format('Y-m-d')}",
+                    'status' => 'sent',
+                    'sent_at' => now(),
+                ]);
+                $autoRenewed[] = [$sub, $wasPaid];
+            } else {
                 $mismatches[] = $sub;
             }
         }
 
         $this->table(['Domain', 'Recorded', 'Registry'], $rows);
 
+        $e = fn ($s) => TelegramNotifier::escape($s);
+
+        if ($autoRenewed && ! $this->option('quiet-telegram')) {
+            $lines = ['🔄 <b>ئەم دۆمەینانە لە تۆمارگە نوێکراونەتەوە</b>', 'بەرواری سیستەم خۆکار نوێکرایەوە:', ''];
+            foreach ($autoRenewed as [$sub, $wasPaid]) {
+                $lines[] = '✅ <code>' . $e($sub->domain_name) . '</code> تا <b>' . $sub->expiry_date->format('Y-m-d') . '</b> · ' . $e($sub->client?->business_name ?: $sub->client?->name);
+                if (! $wasPaid) {
+                    $lines[] = '   ⚠️ پارەی کڕیار تۆمار نەکرابوو، بزانە وەرتگرتووە';
+                }
+            }
+            $telegram->send(implode("\n", $lines));
+        }
+
         if ($mismatches && ! $this->option('quiet-telegram')) {
-            $e = fn ($s) => TelegramNotifier::escape($s);
             $lines = ['🌐 <b>بەرواری دۆمەین جیاوازە لەگەڵ تۆمارگە</b>', ''];
             foreach ($mismatches as $sub) {
                 $earlier = $sub->registry_expiry_date->lt($sub->expiry_date);
@@ -64,7 +103,7 @@ class CheckDomainExpiry extends Command
             $telegram->send(implode("\n", $lines));
         }
 
-        $this->info(count($domains) . ' checked, ' . count($mismatches) . ' mismatch(es).');
+        $this->info(count($domains) . ' checked, ' . count($autoRenewed) . ' auto-renewed, ' . count($mismatches) . ' mismatch(es).');
 
         return self::SUCCESS;
     }

@@ -314,7 +314,7 @@
 
         <x-slot name="footer">
             <div class="flex items-center justify-between w-full">
-                <x-button primary label="{{ $editingId ? 'نوێکردنەوە' : 'تۆمارکردنی خەرجی' }}" wire:click="save" />
+                <x-button primary label="{{ $editingId ? 'نوێکردنەوە' : 'تۆمارکردنی خەرجی' }}" wire:click="save" spinner="save" />
                 <x-button flat label="پاشگەزبوونەوە" x-on:click="close" />
             </div>
         </x-slot>

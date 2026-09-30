@@ -3,8 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Models\ActivityReminder;
+use App\Models\Invoice;
 use App\Models\Server;
 use App\Models\Subscription;
+use App\Services\RenewalBot;
 use App\Services\TelegramNotifier;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -27,29 +29,38 @@ class ScanRenewals extends Command
     /** Keep nagging this many days after expiry. */
     private const OVERDUE_WINDOW = 30;
 
-    public function handle(TelegramNotifier $telegram): int
+    public function handle(TelegramNotifier $telegram, RenewalBot $bot): int
     {
         $dryRun = (bool) $this->option('dry-run');
 
         $expiredCount = $dryRun ? 0 : $this->markExpired();
 
         $subscriptions = $this->dueSubscriptions();
+        $invoices = $this->dueInvoices();
         $servers = $this->dueServers();
 
         if ($expiredCount) {
             $this->info("{$expiredCount} subscription(s) marked as expired.");
         }
 
-        if ($subscriptions->isEmpty() && $servers->isEmpty()) {
+        if ($subscriptions->isEmpty() && $servers->isEmpty() && $invoices->isEmpty()) {
             $this->info('Nothing needs a reminder today.');
 
             return self::SUCCESS;
         }
 
-        $message = $this->buildMessage($subscriptions, $servers);
+        $message = $this->buildMessage($subscriptions, $servers, $invoices);
 
         if ($dryRun) {
-            $this->line(strip_tags($message));
+            $this->line(html_entity_decode(strip_tags($message)));
+            foreach ($subscriptions as $sub) {
+                $this->line('');
+                $this->line(html_entity_decode(strip_tags($bot->card($sub)[0])));
+            }
+            foreach ($invoices as $inv) {
+                $this->line('');
+                $this->line(html_entity_decode(strip_tags($bot->invoiceCard($inv)[0])));
+            }
 
             return self::SUCCESS;
         }
@@ -59,6 +70,14 @@ class ScanRenewals extends Command
         }
 
         $sent = $telegram->send($message);
+        if ($sent) {
+            foreach ($subscriptions as $sub) {
+                $bot->sendCard($sub);
+            }
+            foreach ($invoices as $inv) {
+                $bot->sendInvoiceCard($inv);
+            }
+        }
 
         foreach ($subscriptions as $sub) {
             ActivityReminder::create([
@@ -68,6 +87,20 @@ class ScanRenewals extends Command
                 'channel' => 'telegram',
                 'recipient' => $telegram->chatId(),
                 'message' => "{$sub->name}: {$sub->expiry_status_text}",
+                'status' => $sent ? 'sent' : 'failed',
+                'sent_at' => $sent ? now() : null,
+            ]);
+        }
+
+        foreach ($invoices as $inv) {
+            ActivityReminder::create([
+                'client_id' => $inv->client_id,
+                'subscription_id' => $inv->subscription_id,
+                'invoice_id' => $inv->id,
+                'type' => 'invoice_due',
+                'channel' => 'telegram',
+                'recipient' => $telegram->chatId(),
+                'message' => "{$inv->invoice_number}: {$inv->remaining_balance} {$inv->currency}",
                 'status' => $sent ? 'sent' : 'failed',
                 'sent_at' => $sent ? now() : null,
             ]);
@@ -97,6 +130,31 @@ class ScanRenewals extends Command
         return self::FAILURE;
     }
 
+    /**
+     * Payments due in 3 days, today, or overdue (daily for 30 days, then Mondays), not already sent today.
+     */
+    private function dueInvoices(): Collection
+    {
+        $force = (bool) $this->option('force');
+        $today = Carbon::today();
+
+        return Invoice::with(['client', 'subscription'])
+            ->whereIn('status', ['sent', 'partial', 'overdue'])
+            ->whereColumn('paid_amount', '<', 'total')
+            ->whereDate('due_date', '<=', $today->copy()->addDays(3)->toDateString())
+            ->orderBy('due_date')
+            ->get()
+            ->filter(function (Invoice $inv) use ($force, $today) {
+                if (! $force && ActivityReminder::where('invoice_id', $inv->id)->where('type', 'invoice_due')->whereDate('created_at', $today)->exists()) {
+                    return false;
+                }
+                $days = (int) $today->diffInDays($inv->due_date, false);
+
+                return in_array($days, [3, 0], true) || ($days < 0 && ($days >= -30 || $today->isMonday()));
+            })
+            ->values();
+    }
+
     private function markExpired(): int
     {
         return Subscription::where('status', 'active')
@@ -121,7 +179,9 @@ class ScanRenewals extends Command
 
                 return ($days <= self::DAILY_WINDOW && $days >= -self::OVERDUE_WINDOW)
                     || in_array($days, self::MILESTONES, true)
-                    || $days === (int) $sub->reminder_days_before;
+                    || $days === (int) $sub->reminder_days_before
+                    // Long-lapsed items stay in the radar; nudge about them once a week so they get renewed or cancelled.
+                    || ($days < -self::OVERDUE_WINDOW && Carbon::today()->isMonday());
             })
             ->values();
     }
@@ -140,33 +200,22 @@ class ScanRenewals extends Command
             ->values();
     }
 
-    private function buildMessage(Collection $subscriptions, Collection $servers): string
+    private function buildMessage(Collection $subscriptions, Collection $servers, ?Collection $invoices = null): string
     {
         $e = fn (?string $s) => TelegramNotifier::escape($s);
 
         $lines = ['🔔 <b>نوێکردنەوەکانی ئەمڕۆ</b> · ' . Carbon::today()->format('Y-m-d'), ''];
 
-        $groups = [
-            '🔴 <b>بەسەرچووە</b>' => $subscriptions->filter(fn ($s) => $s->days_until_expiry < 0),
-            '🟠 <b>ئەم هەفتەیە</b>' => $subscriptions->filter(fn ($s) => $s->days_until_expiry >= 0 && $s->days_until_expiry <= 7),
-            '🟡 <b>نزیکە</b>' => $subscriptions->filter(fn ($s) => $s->days_until_expiry > 7),
-        ];
-
-        foreach ($groups as $title => $items) {
-            if ($items->isEmpty()) {
-                continue;
-            }
-            $lines[] = $title;
-            foreach ($items as $sub) {
-                $client = $sub->client?->business_name ?: $sub->client?->name;
-                $stage = Subscription::STAGE_LABELS[$sub->renewal_stage] ?? '';
-                $lines[] = '• <code>' . $e($sub->domain_name ?: $sub->name) . '</code> · ' . $e($this->typeShort($sub->type));
-                $lines[] = '   ' . $e($client) . ' · ' . $e($sub->expiry_status_text) . ' · $' . number_format((float) $sub->selling_price, 0);
-                $lines[] = '   ↳ ' . $e($stage);
-            }
+        $counts = array_filter([
+            '🔴 بەسەرچووە' => $subscriptions->filter(fn ($s) => $s->days_until_expiry < 0)->count(),
+            '🟠 ئەم هەفتەیە' => $subscriptions->filter(fn ($s) => $s->days_until_expiry >= 0 && $s->days_until_expiry <= 7)->count(),
+            '🟡 نزیکە' => $subscriptions->filter(fn ($s) => $s->days_until_expiry > 7)->count(),
+        ]);
+        if ($counts) {
+            $lines[] = collect($counts)->map(fn ($n, $label) => "{$label}: <b>{$n}</b>")->implode(' · ');
+            $lines[] = 'هەر یەکەیان لە خوارەوە بە دوگمەوە دێت 👇';
             $lines[] = '';
         }
-
         if ($servers->isNotEmpty()) {
             $lines[] = '🖥 <b>سێرڤەرەکانی خۆت</b>';
             foreach ($servers as $server) {
@@ -176,25 +225,16 @@ class ScanRenewals extends Command
             $lines[] = '';
         }
 
-        $unpaid = $subscriptions->where('renewal_stage', '<', Subscription::STAGE_PAID)->sum('selling_price');
-        $cost = $subscriptions->sum('cost_price');
+        $unpaid = $subscriptions->where('renewal_stage', '<', Subscription::STAGE_PAID)->sum('selling_usd');
+        $cost = $subscriptions->sum('cost_usd');
+        if ($invoices && $invoices->isNotEmpty()) {
+            $owed = $invoices->sum(fn ($i) => Subscription::toUsd($i->remaining_balance, $i->currency));
+            $lines[] = '💳 <b>پارەی چاوەڕوانکراو:</b> ' . $invoices->count() . ' · $' . number_format((float) $owed, 0);
+            $lines[] = '';
+        }
         $lines[] = '💵 وەرگرتن لە کڕیاران: <b>$' . number_format((float) $unpaid, 0) . '</b> · پارەدان بە دابینکەر: <b>$' . number_format((float) $cost, 0) . '</b>';
         $lines[] = '👉 ' . $e(route('admin.renewals'));
 
         return implode("\n", $lines);
-    }
-
-    private function typeShort(string $type): string
-    {
-        return match ($type) {
-            'domain' => 'دۆمەین',
-            'hosting' => 'هۆستینگ',
-            'bundle' => 'دۆمەین + هۆستینگ',
-            'email' => 'ئیمەیڵی بزنس',
-            'vps' => 'VPS',
-            'license' => 'مۆڵەت',
-            'maintenance' => 'پشتگیری',
-            default => 'خزمەتگوزاری',
-        };
     }
 }

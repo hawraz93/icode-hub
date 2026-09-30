@@ -7,12 +7,15 @@ use App\Livewire\Admin\ExpensesManager;
 use App\Livewire\Admin\InvoicesManager;
 use App\Livewire\Admin\ProfileManager;
 use App\Livewire\Admin\ProjectsManager;
+use App\Livewire\Admin\QuickAdd;
 use App\Livewire\Admin\RenewalRadar;
 use App\Livewire\Admin\ServersManager;
 use App\Livewire\Admin\SubscriptionsManager;
 use App\Livewire\Auth\Login;
 use App\Livewire\Public\ClientPortal;
 use App\Livewire\Public\PortfolioHome;
+use App\Http\Controllers\RenewalWhatsappController;
+use App\Http\Controllers\TelegramWebhookController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -25,6 +28,10 @@ Route::get('/lang/{locale}', function (string $locale) {
     }
     return redirect()->back();
 })->name('set.locale');
+
+// Telegram bot webhook (verified by secret header) and signed WhatsApp links from Telegram buttons
+Route::post('/telegram/webhook', TelegramWebhookController::class)->name('telegram.webhook');
+Route::get('/r/wa/{subscription}', RenewalWhatsappController::class)->middleware('signed')->name('renewals.whatsapp');
 
 // Authentication Routes
 Route::get('/login', Login::class)->name('login')->middleware('guest');
@@ -39,6 +46,7 @@ Route::post('/logout', function () {
 Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::get('/', Dashboard::class)->name('dashboard');
     Route::get('/renewals', RenewalRadar::class)->name('renewals');
+    Route::get('/renewals/add', QuickAdd::class)->name('quick-add');
     Route::get('/subscriptions', SubscriptionsManager::class)->name('subscriptions');
     Route::get('/servers', ServersManager::class)->name('servers');
     Route::get('/expenses', ExpensesManager::class)->name('expenses');

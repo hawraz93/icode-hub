@@ -123,6 +123,25 @@
 
     </div>
 
+    <!-- 2b. Cash this month: what actually came in and what is still owed -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <a href="{{ route('admin.invoices') }}" class="rounded-2xl bg-white border border-slate-200/80 p-4 space-y-1 hover:border-emerald-300 transition">
+            <div class="text-xs font-bold text-slate-500">وەرگیراو لە {{ $cash['month'] }}</div>
+            <div class="text-2xl font-black font-mono text-emerald-600" dir="ltr">${{ number_format($cash['received'], 0) }}</div>
+            <p class="text-[11px] text-slate-400">پارەی ڕاستەقینە کە وەرتگرتووە</p>
+        </a>
+        <a href="{{ route('admin.renewals') }}" class="rounded-2xl bg-white border border-slate-200/80 p-4 space-y-1 hover:border-indigo-300 transition">
+            <div class="text-xs font-bold text-slate-500">ماوە بۆ ئەم مانگە</div>
+            <div class="text-2xl font-black font-mono text-indigo-600" dir="ltr">${{ number_format($cash['due'], 0) }}</div>
+            <p class="text-[11px] text-slate-400">{{ $cash['due_count'] }} پارەدان تا کۆتایی مانگ</p>
+        </a>
+        <a href="{{ route('admin.renewals') }}" class="rounded-2xl p-4 space-y-1 border transition {{ $cash['overdue'] > 0 ? 'bg-rose-50 border-rose-200 hover:border-rose-300' : 'bg-white border-slate-200/80' }}">
+            <div class="text-xs font-bold {{ $cash['overdue'] > 0 ? 'text-rose-700' : 'text-slate-500' }}">دواکەوتوو</div>
+            <div class="text-2xl font-black font-mono {{ $cash['overdue'] > 0 ? 'text-rose-600' : 'text-slate-400' }}" dir="ltr">${{ number_format($cash['overdue'], 0) }}</div>
+            <p class="text-[11px] {{ $cash['overdue'] > 0 ? 'text-rose-600' : 'text-slate-400' }}">{{ $cash['overdue_count'] }} کڕیار هێشتا نەیانداوە</p>
+        </a>
+    </div>
+
     <!-- 3. Performance Chart -->
     <div class="bg-white rounded-2xl md:rounded-3xl p-4 md:p-6 border border-slate-200/80 shadow-xs space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">

@@ -73,6 +73,24 @@ class Client extends Model
         return $digits;
     }
 
+    /**
+     * Existing client with the same phone/WhatsApp number (ignores spaces, dashes, 0 vs 964 prefix).
+     */
+    public static function findByPhone(?string $phone, ?int $exceptId = null): ?self
+    {
+        $wanted = (new self(['phone' => $phone]))->whatsapp_number;
+        if (! $wanted) {
+            return null;
+        }
+
+        return self::query()
+            ->when($exceptId, fn ($q) => $q->whereKeyNot($exceptId))
+            ->where(fn ($q) => $q->whereNotNull('phone')->orWhereNotNull('whatsapp'))
+            ->get()
+            ->first(fn (self $c) => $c->whatsapp_number === $wanted
+                || ($c->phone && (new self(['phone' => $c->phone]))->whatsapp_number === $wanted));
+    }
+
     public function getTotalPaidAttribute(): float
     {
         return (float) $this->invoices()->where('status', 'paid')->sum('total');

@@ -3,8 +3,11 @@
 namespace App\Livewire\Admin;
 
 use App\Models\ActivityReminder;
+use App\Models\Invoice;
 use App\Models\Server;
 use App\Models\Subscription;
+use Carbon\Carbon;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use WireUi\Traits\WireUiActions;
 
@@ -31,6 +34,7 @@ class RenewalRadar extends Component
 
     public string $filter = 'all';
 
+    #[Url(as: 'open', except: null)]
     public ?int $selectedId = null;
 
     public static function urgencyOf(int $days): string
@@ -153,6 +157,41 @@ class RenewalRadar extends Component
         ]);
     }
 
+    /**
+     * Record that the client owes money for a service (e.g. "pays at the start of next month").
+     */
+    public function recordDebt(int $id, $amount, ?string $dueDate = null): void
+    {
+        $sub = Subscription::findOrFail($id);
+        $amount = (float) $amount;
+        if ($amount <= 0) {
+            $this->addError('debt', 'بڕەکە بنووسە.');
+
+            return;
+        }
+
+        $due = $dueDate ? Carbon::parse($dueDate) : Carbon::today()->addMonthNoOverflow()->startOfMonth();
+        $invoice = $sub->bill($amount, $due, "پارەی {$sub->name}");
+
+        $this->notification()->send([
+            'icon' => 'success',
+            'title' => 'قەرز تۆمارکرا',
+            'description' => Subscription::formatAmount($amount, $sub->currency) . " · کاتی دان {$invoice->due_date->format('Y-m-d')}",
+        ]);
+    }
+
+    public function markInvoicePaid(int $invoiceId): void
+    {
+        $invoice = Invoice::findOrFail($invoiceId);
+        $invoice->markPaid();
+
+        $this->notification()->send([
+            'icon' => 'success',
+            'title' => 'پارە وەرگیرا',
+            'description' => Subscription::formatAmount((float) $invoice->total, $invoice->currency) . " · {$invoice->invoice_number}",
+        ]);
+    }
+
     private function log(Subscription $sub, string $type, string $channel, string $message, ?string $recipient = null): void
     {
         ActivityReminder::create([
@@ -187,12 +226,12 @@ class RenewalRadar extends Component
         $rate = (float) config('app.usd_to_iqd', 1500);
 
         $summary = [
-            'collect' => (float) $unpaid->sum('selling_price'),
-            'collect_iqd' => (float) $unpaid->sum('selling_price') * $rate,
+            'collect' => (float) $unpaid->sum('selling_usd'),
+            'collect_iqd' => (float) $unpaid->sum('selling_usd') * $rate,
             'collect_clients' => $unpaid->pluck('client_id')->unique()->count(),
-            'pay' => (float) $next30->sum('cost_price'),
+            'pay' => (float) $next30->sum('cost_usd'),
             'pay_count' => $next30->count(),
-            'profit' => (float) $next30->sum(fn ($s) => $s->selling_price - $s->cost_price),
+            'profit' => (float) $next30->sum(fn ($s) => $s->selling_usd - $s->cost_usd),
             'paid_not_renewed' => $all->where('renewal_stage', Subscription::STAGE_PAID)->count(),
         ];
 
@@ -216,6 +255,19 @@ class RenewalRadar extends Component
             ? ActivityReminder::where('subscription_id', $selected->id)->latest()->take(4)->get()
             : collect();
 
+        // Money clients owe: overdue or due within 30 days
+        $dues = Invoice::with(['client', 'subscription'])
+            ->whereIn('status', ['sent', 'partial', 'overdue'])
+            ->whereColumn('paid_amount', '<', 'total')
+            ->whereDate('due_date', '<=', now()->addDays(30)->toDateString())
+            ->orderBy('due_date')
+            ->get();
+        $summary['owed_now'] = (float) $dues->filter(fn ($i) => $i->due_date->lte(Carbon::today()))
+            ->sum(fn ($i) => Subscription::toUsd($i->remaining_balance, $i->currency));
+        $summary['owed_30'] = (float) $dues->sum(fn ($i) => Subscription::toUsd($i->remaining_balance, $i->currency));
+
+        $openInvoices = $selected ? $selected->openInvoices()->get() : collect();
+
         $servers = Server::where('status', 'active')
             ->whereDate('renewal_date', '<=', now()->addDays(30)->toDateString())
             ->orderBy('renewal_date')
@@ -223,6 +275,8 @@ class RenewalRadar extends Component
 
         return view('livewire.admin.renewal-radar', [
             'servers' => $servers,
+            'dues' => $dues,
+            'openInvoices' => $openInvoices,
             'groups' => $groups,
             'counts' => $counts,
             'summary' => $summary,

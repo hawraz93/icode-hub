@@ -4,6 +4,7 @@ namespace App\Livewire\Admin;
 
 use App\Models\Client;
 use App\Models\Expense;
+use App\Models\Invoice;
 use App\Models\Server;
 use App\Models\Subscription;
 use Carbon\Carbon;
@@ -18,6 +19,34 @@ class Dashboard extends Component
         $this->exchangeRate = (float) config('app.usd_to_iqd', 1500);
     }
 
+    /**
+     * Real money, not averages: received this month, still due this month, and overdue (all in USD).
+     *
+     * @return array{received: float, due: float, overdue: float, due_count: int, overdue_count: int, month: string}
+     */
+    private function cashThisMonth(): array
+    {
+        $start = Carbon::today()->startOfMonth();
+        $end = Carbon::today()->endOfMonth();
+        $usd = fn ($amount, $currency) => Subscription::toUsd((float) $amount, $currency);
+
+        $received = Invoice::whereNotNull('paid_at')->whereBetween('paid_at', [$start, $end->copy()->endOfDay()])->get()
+            ->sum(fn ($i) => $usd($i->paid_amount, $i->currency));
+
+        $open = Invoice::whereIn('status', ['sent', 'partial', 'overdue'])->whereColumn('paid_amount', '<', 'total')->get();
+        $dueThisMonth = $open->filter(fn ($i) => $i->due_date->between(Carbon::today(), $end));
+        $overdue = $open->filter(fn ($i) => $i->due_date->lt(Carbon::today()));
+
+        return [
+            'received' => (float) $received,
+            'due' => (float) $dueThisMonth->sum(fn ($i) => $usd($i->remaining_balance, $i->currency)),
+            'due_count' => $dueThisMonth->count(),
+            'overdue' => (float) $overdue->sum(fn ($i) => $usd($i->remaining_balance, $i->currency)),
+            'overdue_count' => $overdue->count(),
+            'month' => ['', 'کانوونی دووەم', 'شوبات', 'ئازار', 'نیسان', 'ئایار', 'حوزەیران', 'تەمموز', 'ئاب', 'ئەیلوول', 'تشرینی یەکەم', 'تشرینی دووەم', 'کانوونی یەکەم'][$start->month],
+        ];
+    }
+
     public function render()
     {
         // 1. Clients & Services
@@ -30,7 +59,12 @@ class Dashboard extends Component
         // 2. Client Revenue (Purely from paying clients)
         $totalAnnualRevenueUsd = 0;
         foreach ($activeSubscriptions as $sub) {
-            $selling = (float) $sub->selling_price;
+            // Monthly-installment clients: 12 installments a year; otherwise the cycle price.
+            if ($sub->payment_plan === 'monthly' && (float) $sub->installment_amount > 0) {
+                $totalAnnualRevenueUsd += $sub->monthly_selling_price * 12;
+                continue;
+            }
+            $selling = $sub->selling_usd;
             $multiplier = match ($sub->billing_cycle) {
                 'biennial' => 0.5,
                 'semi_annual' => 2.0,
@@ -108,6 +142,7 @@ class Dashboard extends Component
             'monthlyCostsIqd' => $monthlyCostsIqd,
             'monthlyNetProfitIqd' => $monthlyNetProfitIqd,
             'profitMargin' => $profitMargin,
+            'cash' => $this->cashThisMonth(),
             'allExpenses' => $allExpenses,
             'expiringSubscriptions' => $expiringSubscriptions,
             'servers' => $activeServers,

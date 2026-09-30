@@ -37,6 +37,11 @@ class SubscriptionsManager extends Component
     public float $selling_price = 100.00;
     public string $currency = 'USD';
     public string $billing_cycle = 'annual';
+    public string $payment_plan = 'upfront';
+    public ?float $installment_amount = null;
+    public int $payment_day = 1;
+    public bool $client_paid = true;
+    public ?string $pay_due_date = null;
     public ?string $start_date = null;
     public ?string $expiry_date = null;
     public bool $auto_renew = true;
@@ -62,8 +67,11 @@ class SubscriptionsManager extends Component
             'provider' => 'nullable|string|max:255',
             'cost_price' => 'required|numeric|min:0',
             'selling_price' => 'required|numeric|min:0',
-            'currency' => 'required|string|max:10',
+            'currency' => 'required|in:USD,IQD',
             'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,annual,biennial',
+            'payment_plan' => 'required|in:upfront,monthly',
+            'installment_amount' => 'nullable|required_if:payment_plan,monthly|numeric|min:0',
+            'payment_day' => 'required|integer|min:1|max:28',
             'start_date' => 'required|date',
             'expiry_date' => 'required|date|after_or_equal:start_date',
             'auto_renew' => 'boolean',
@@ -75,7 +83,7 @@ class SubscriptionsManager extends Component
 
     public function updatedType(): void
     {
-        $domain = trim(strtolower($this->domain_name));
+        $domain = strtolower((string) Subscription::normalizeDomain($this->domain_name));
         
         switch ($this->type) {
             case 'bundle':
@@ -118,7 +126,7 @@ class SubscriptionsManager extends Component
 
     public function updatedDomainName(): void
     {
-        $domain = trim(strtolower($this->domain_name));
+        $domain = strtolower((string) Subscription::normalizeDomain($this->domain_name));
         if ($domain) {
             // Auto fill or enhance service name based on type
             if ($this->type === 'domain') {
@@ -196,10 +204,24 @@ class SubscriptionsManager extends Component
             'quick_client_city' => 'nullable|string|max:100',
         ]);
 
+        // Same number already on file (e.g. a double tap while saving): select it instead of duplicating.
+        if ($existing = Client::findByPhone($this->quick_client_phone)) {
+            $this->client_id = $existing->id;
+            $this->showQuickClientModal = false;
+            $this->notification()->send([
+                'icon' => 'info',
+                'title' => 'کڕیار پێشتر هەبوو',
+                'description' => "«{$existing->display_name}» هەمان ژمارەی هەیە و هەڵبژێردرا.",
+            ]);
+
+            return;
+        }
+
         $client = Client::create([
             'name' => $this->quick_client_name,
             'business_name' => $this->quick_client_business_name,
             'phone' => $this->quick_client_phone,
+            'whatsapp' => $this->quick_client_phone,
             'city' => $this->quick_client_city ?: 'هەولێر',
             'status' => 'active',
             'portal_access_code' => 'CL-' . strtoupper(Str::random(6)),
@@ -235,6 +257,9 @@ class SubscriptionsManager extends Component
         $this->selling_price = (float) $sub->selling_price;
         $this->currency = $sub->currency;
         $this->billing_cycle = $sub->billing_cycle;
+        $this->payment_plan = $sub->payment_plan ?? 'upfront';
+        $this->installment_amount = $sub->installment_amount !== null ? (float) $sub->installment_amount : null;
+        $this->payment_day = (int) ($sub->payment_day ?: 1);
         $this->start_date = $sub->start_date ? $sub->start_date->format('Y-m-d') : null;
         $this->expiry_date = $sub->expiry_date ? $sub->expiry_date->format('Y-m-d') : null;
         $this->auto_renew = (bool) $sub->auto_renew;
@@ -258,7 +283,11 @@ class SubscriptionsManager extends Component
                 'description' => 'زانیاری خزمەتگوزاری بە سەرکەوتوویی نوێکرایەوە.',
             ]);
         } else {
-            Subscription::create($validated);
+            $sub = Subscription::create($validated);
+            if (! $this->client_paid && (float) $sub->selling_price > 0) {
+                $due = $this->pay_due_date ? Carbon::parse($this->pay_due_date) : Carbon::today()->addMonthNoOverflow()->startOfMonth();
+                $sub->bill((float) $sub->selling_price, $due, "پارەی {$sub->name}");
+            }
             $this->notification()->send([
                 'icon' => 'success',
                 'title' => 'تۆمارکرا',
@@ -415,6 +444,11 @@ class SubscriptionsManager extends Component
         $this->selling_price = 100.00;
         $this->currency = 'USD';
         $this->billing_cycle = 'annual';
+        $this->payment_plan = 'upfront';
+        $this->installment_amount = null;
+        $this->payment_day = 1;
+        $this->client_paid = true;
+        $this->pay_due_date = Carbon::today()->addMonthNoOverflow()->startOfMonth()->toDateString();
         $this->start_date = Carbon::now()->format('Y-m-d');
         $this->expiry_date = Carbon::now()->addYear()->format('Y-m-d');
         $this->auto_renew = true;
@@ -426,11 +460,11 @@ class SubscriptionsManager extends Component
     public function render()
     {
         $allActive = Subscription::where('status', 'active')->get();
-        $totalHostingRevenue = $allActive->whereIn('type', ['hosting', 'bundle'])->sum('selling_price');
-        $totalDomainRevenue = $allActive->where('type', 'domain')->sum('selling_price');
-        $totalEmailRevenue = $allActive->where('type', 'email')->sum('selling_price');
-        $totalSubscriptionsCost = $allActive->sum('cost_price');
-        $totalSubscriptionsRevenue = $allActive->sum('selling_price');
+        $totalHostingRevenue = $allActive->whereIn('type', ['hosting', 'bundle'])->sum('selling_usd');
+        $totalDomainRevenue = $allActive->where('type', 'domain')->sum('selling_usd');
+        $totalEmailRevenue = $allActive->where('type', 'email')->sum('selling_usd');
+        $totalSubscriptionsCost = $allActive->sum('cost_usd');
+        $totalSubscriptionsRevenue = $allActive->sum('selling_usd');
 
         // Extract available years for filter (Database agnostic)
         $availableYears = Subscription::whereNotNull('expiry_date')
@@ -445,7 +479,7 @@ class SubscriptionsManager extends Component
             $availableYears = ['2026', '2027', '2028'];
         }
 
-        $query = Subscription::with(['client', 'server'])
+        $query = Subscription::with(['client', 'server', 'openInvoices'])
             ->when($this->search, function ($q) {
                 $q->where(function ($sq) {
                     $sq->where('name', 'like', "%{$this->search}%")
@@ -461,8 +495,8 @@ class SubscriptionsManager extends Component
             ->when($this->yearFilter !== 'all', fn($q) => $q->whereYear('expiry_date', $this->yearFilter));
 
         $filteredSubscriptions = (clone $query)->get();
-        $filteredRevenue = $filteredSubscriptions->sum('selling_price');
-        $filteredCost = $filteredSubscriptions->sum('cost_price');
+        $filteredRevenue = $filteredSubscriptions->sum('selling_usd');
+        $filteredCost = $filteredSubscriptions->sum('cost_usd');
         $filteredProfit = max(0, $filteredRevenue - $filteredCost);
 
         $subscriptions = $query->orderBy('expiry_date', 'asc')->paginate(12);

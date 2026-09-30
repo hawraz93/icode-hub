@@ -73,6 +73,14 @@ class ClientsManager extends Component
     {
         $validated = $this->validate();
 
+        $duplicate = Client::findByPhone($validated['phone'], $this->editingId)
+            ?? (filled($validated['whatsapp'] ?? null) ? Client::findByPhone($validated['whatsapp'], $this->editingId) : null);
+        if ($duplicate) {
+            $this->addError('phone', "ئەم ژمارەیە پێشتر بۆ «{$duplicate->display_name}» تۆمارکراوە.");
+
+            return;
+        }
+
         if ($this->editingId) {
             $client = Client::findOrFail($this->editingId);
             $client->update($validated);
