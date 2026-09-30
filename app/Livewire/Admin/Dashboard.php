@@ -11,7 +11,12 @@ use Livewire\Component;
 
 class Dashboard extends Component
 {
-    public float $exchangeRate = 1500; // 1 USD = 1,500 IQD
+    public float $exchangeRate = 1500; // 1 USD in IQD, overridden by USD_TO_IQD
+
+    public function mount(): void
+    {
+        $this->exchangeRate = (float) config('app.usd_to_iqd', 1500);
+    }
 
     public function render()
     {

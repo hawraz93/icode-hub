@@ -2,7 +2,14 @@
 <html lang="ckb" dir="rtl" class="h-full">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
+    <link rel="apple-touch-icon" href="{{ asset('icons/apple-touch-icon.png') }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="iCode Hub">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>{{ $title ?? 'داشبۆردی بەڕێوەبردن' }} | iCode Group Hub</title>
     
     <link rel="icon" type="image/png" href="{{ asset('images/logo.png') }}">
@@ -171,7 +178,7 @@
         <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
             
             <!-- Top Navbar (Mobile Optimized & Clean) -->
-            <header class="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 bg-white border-b border-slate-200 gap-2">
+            <header class="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 pt-[calc(0.625rem+env(safe-area-inset-top))] sm:pt-4 bg-white border-b border-slate-200 gap-2">
                 <div class="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
                     <button @click="sidebarOpen = true" class="lg:hidden p-2 rounded-xl text-slate-500 hover:bg-slate-100 flex-shrink-0">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
@@ -337,12 +344,12 @@
             </header>
 
             <!-- Page Body -->
-            <main class="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 lg:pb-8">
+            <main class="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-8">
                 {{ $slot }}
             </main>
 
             <!-- Mobile Bottom App Bar (Optimized for Phone Touch UX) -->
-            <nav class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 py-2 px-2 shadow-lg">
+            <nav class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] px-2 shadow-lg">
                 <div class="flex items-center justify-around max-w-md mx-auto">
                     
                     <!-- Dashboard -->
@@ -385,5 +392,10 @@
     </div>
 
     @livewireScripts
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+        }
+    </script>
 </body>
 </html>

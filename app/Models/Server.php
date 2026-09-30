@@ -45,6 +45,30 @@ class Server extends Model
         return (int) Carbon::now()->startOfDay()->diffInDays(Carbon::parse($this->renewal_date)->startOfDay(), false);
     }
 
+    /**
+     * Advance the renewal date by whole billing cycles until it is in the future,
+     * keeping the provider's billing anchor day.
+     */
+    public function renew(): Carbon
+    {
+        $next = Carbon::parse($this->renewal_date);
+        do {
+            $next = match ($this->billing_cycle) {
+                'annual' => $next->addYear(),
+                'semi_annual' => $next->addMonths(6),
+                'quarterly' => $next->addMonths(3),
+                default => $next->addMonth(),
+            };
+        } while ($next->lte(Carbon::today()));
+
+        $this->update([
+            'renewal_date' => $next->format('Y-m-d'),
+            'status' => 'active',
+        ]);
+
+        return $next;
+    }
+
     public function getRenewalStatusTextAttribute(): string
     {
         $days = $this->days_until_renewal;

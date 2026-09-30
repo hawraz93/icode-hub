@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
 // Daily renewal digest to Telegram (needs `php artisan schedule:run` every minute via cron / Task Scheduler)
+Schedule::command('domains:check-expiry')->dailyAt('08:45')->timezone('Asia/Baghdad')->withoutOverlapping();
 Schedule::command('renewals:scan')->dailyAt('09:00')->timezone('Asia/Baghdad')->withoutOverlapping();
 
 Artisan::command('inspire', function () {

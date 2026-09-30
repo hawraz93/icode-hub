@@ -25,6 +25,8 @@ class Subscription extends Model
         'billing_cycle',
         'start_date',
         'expiry_date',
+        'registry_expiry_date',
+        'registry_checked_at',
         'auto_renew',
         'status',
         'renewal_stage',
@@ -43,6 +45,8 @@ class Subscription extends Model
         'auto_renew' => 'boolean',
         'last_reminded_at' => 'datetime',
         'stage_updated_at' => 'datetime',
+        'registry_expiry_date' => 'date',
+        'registry_checked_at' => 'datetime',
         'renewal_stage' => 'integer',
     ];
 
@@ -83,8 +87,14 @@ class Subscription extends Model
     public function renew(): Carbon
     {
         $currentExpiry = Carbon::parse($this->expiry_date);
-        $baseDate = $currentExpiry->isPast() ? Carbon::now() : $currentExpiry;
+        // Registrars extend late domain renewals from the old expiry; other services restart from today.
+        $fromOldExpiry = in_array($this->type, ['domain', 'bundle'], true) || ! $currentExpiry->isPast();
+        $baseDate = $fromOldExpiry ? $currentExpiry : Carbon::now();
         $newExpiry = $this->renewalCycleEnd($baseDate);
+        if ($newExpiry->isPast()) {
+            // Long-lapsed domain: effectively a new registration from today.
+            $newExpiry = $this->renewalCycleEnd(Carbon::now());
+        }
 
         $this->update([
             'expiry_date' => $newExpiry->format('Y-m-d'),
@@ -215,6 +225,15 @@ class Subscription extends Model
             return "ئەمڕۆ بەسەردەچێت!";
         }
         return "{$days} ڕۆژ ماوە";
+    }
+
+    /**
+     * True when the registry (RDAP) reports a different expiry than the one recorded here.
+     */
+    public function getHasRegistryMismatchAttribute(): bool
+    {
+        return $this->registry_expiry_date && $this->expiry_date
+            && abs($this->registry_expiry_date->diffInDays($this->expiry_date)) > 1;
     }
 
     public function getIsExpiringSoonAttribute(): bool

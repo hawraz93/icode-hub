@@ -142,7 +142,12 @@
                                 </span>
                                 <span class="font-mono text-[13px] font-bold text-slate-900" dir="ltr">{{ $money($sub->selling_price, $sub->currency) }}</span>
                             </div>
-                            <div class="font-mono font-bold text-[14px] text-slate-900 truncate text-right" dir="ltr">{{ $sub->domain_name ?: $sub->name }}</div>
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                @if($sub->has_registry_mismatch)
+                                    <span class="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-sky-50 text-sky-700" title="بەرواری تۆمارگە جیاوازە">تۆمارگە ≠</span>
+                                @endif
+                                <div class="font-mono font-bold text-[14px] text-slate-900 truncate text-right flex-1" dir="ltr">{{ $sub->domain_name ?: $sub->name }}</div>
+                            </div>
                             <div class="text-xs text-slate-500 truncate">{{ $sub->client->business_name ?: $sub->client->name }}</div>
                             <div class="flex gap-1 mt-1" aria-hidden="true">
                                 @for($i = 1; $i <= 3; $i++)
@@ -157,7 +162,36 @@
         </section>
     @endforeach
 
-    {{-- 4. Detail sheet: bottom sheet on phones, side drawer on desktop --}}
+    {{-- 4. Your own servers (costs, not client revenue) --}}
+    @if($servers->isNotEmpty())
+        <section class="space-y-2.5 pt-2">
+            <h2 class="font-display font-extrabold text-[13px] text-slate-900 flex items-center gap-2">
+                <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 4h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 9h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2zm2-5.5h.01M7 16.5h.01"/></svg>
+                سێرڤەرەکانی خۆت
+                <span class="font-mono font-medium text-xs text-slate-400">{{ $money($servers->sum('cost')) }}</span>
+            </h2>
+            <div class="bg-white border border-slate-200/90 rounded-[20px] divide-y divide-slate-100">
+                @foreach($servers as $srv)
+                    @php $sk = \App\Livewire\Admin\RenewalRadar::urgencyOf($srv->days_until_renewal); @endphp
+                    <div wire:key="srv-{{ $srv->id }}" class="flex items-center gap-3 px-4 py-3">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0 {{ $U[$sk]['dot'] }}"></span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-sm font-bold text-slate-900 truncate">{{ $srv->name }}</div>
+                            <div class="text-[11px] text-slate-500 truncate">
+                                {{ $srv->provider }} · {{ $srv->renewal_status_text }}
+                                @if($srv->auto_renew)<span class="ms-1 px-1.5 rounded bg-slate-100 text-slate-600 font-bold">خۆکار</span>@endif
+                            </div>
+                        </div>
+                        <span class="font-mono text-[13px] font-bold text-slate-900" dir="ltr">{{ $money($srv->cost, $srv->currency) }}</span>
+                        <button type="button" wire:click="renewServer({{ $srv->id }})" wire:confirm="پارەی {{ $srv->name }} دراوە؟ بەرواری نوێکردنەوە درێژ دەکرێتەوە."
+                                class="flex-shrink-0 rounded-xl bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 text-xs font-bold px-3 py-2 transition cursor-pointer">دراوە</button>
+                    </div>
+                @endforeach
+            </div>
+        </section>
+    @endif
+
+    {{-- 5. Detail sheet: bottom sheet on phones, side drawer on desktop --}}
     <div x-show="open" x-transition.opacity.duration.200ms @click="open = null"
          class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-[2px]" style="display:none"></div>
 
@@ -206,8 +240,19 @@
                     <dt class="text-slate-500">واتسئاپ</dt><dd class="text-left font-mono text-slate-800" dir="ltr">{{ $s->client->whatsapp_number ? '+' . $s->client->whatsapp_number : '—' }}</dd>
                     <dt class="text-slate-500">دابینکەر</dt><dd class="text-left text-slate-800">{{ $s->provider ?: '—' }}@if($s->server) · {{ $s->server->name }}@endif</dd>
                     <dt class="text-slate-500">بەسەرچوون</dt><dd class="text-left font-mono text-slate-800">{{ $s->expiry_date->format('Y-m-d') }}</dd>
+                    @if(in_array($s->type, ['domain', 'bundle']) && $s->registry_checked_at)
+                        <dt class="text-slate-500">تۆمارگە (RDAP)</dt>
+                        <dd class="text-left font-mono {{ $s->has_registry_mismatch ? 'text-sky-700 font-bold' : 'text-slate-800' }}">{{ $s->registry_expiry_date?->format('Y-m-d') ?? 'بەردەست نییە' }}</dd>
+                    @endif
                     <dt class="text-slate-500">فرۆش / تێچوو</dt><dd class="text-left font-mono text-slate-800" dir="ltr">{{ $money($s->selling_price, $s->currency) }} / {{ $money($s->cost_price, $s->currency) }}</dd>
                 </dl>
+
+                @if($s->has_registry_mismatch)
+                    <div class="rounded-2xl border px-4 py-3 text-[13px] {{ $s->registry_expiry_date->lt($s->expiry_date) ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-sky-200 bg-sky-50 text-sky-900' }}">
+                        <p class="font-semibold">{{ $s->registry_expiry_date->lt($s->expiry_date) ? 'ئاگاداربە: تۆمارگە دەڵێت ئەم دۆمەینە زووتر بەسەردەچێت.' : 'تۆمارگە دەڵێت ئەم دۆمەینە نوێکراوەتەوە.' }}</p>
+                        <button type="button" wire:click="useRegistryDate({{ $s->id }})" class="mt-2 rounded-xl bg-white/80 hover:bg-white px-3 py-1.5 text-xs font-bold cursor-pointer">بەرواری تۆمارگە بەکاربهێنە</button>
+                    </div>
+                @endif
 
                 {{-- Renewal steps --}}
                 <ol class="relative">

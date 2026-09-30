@@ -30,7 +30,7 @@ class SubscriptionsManager extends Component
     public ?int $client_id = null;
     public ?int $server_id = null;
     public string $name = '';
-    public string $type = 'bundle';
+    public string $type = 'hosting';
     public string $domain_name = '';
     public string $provider = 'Godaddy';
     public float $cost_price = 0.00;

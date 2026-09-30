@@ -3,6 +3,7 @@
 namespace App\Livewire\Admin;
 
 use App\Models\ActivityReminder;
+use App\Models\Server;
 use App\Models\Subscription;
 use Livewire\Component;
 use WireUi\Traits\WireUiActions;
@@ -84,6 +85,46 @@ class RenewalRadar extends Component
             'icon' => 'success',
             'title' => 'نوێکرایەوە',
             'description' => "«{$sub->name}» تا {$newExpiry->format('Y-m-d')} نوێکرایەوە.",
+        ]);
+    }
+
+    public function useRegistryDate(int $id): void
+    {
+        $sub = Subscription::findOrFail($id);
+        if (! $sub->registry_expiry_date) {
+            return;
+        }
+
+        $sub->update([
+            'expiry_date' => $sub->registry_expiry_date->format('Y-m-d'),
+            'status' => $sub->registry_expiry_date->isPast() ? 'expired' : 'active',
+        ]);
+
+        $this->notification()->send([
+            'icon' => 'success',
+            'title' => 'بەروار نوێکرایەوە',
+            'description' => "بەرواری «{$sub->name}» بوو بە {$sub->registry_expiry_date->format('Y-m-d')} (وەک تۆمارگە).",
+        ]);
+    }
+
+    public function renewServer(int $id): void
+    {
+        $server = Server::findOrFail($id);
+        $next = $server->renew();
+
+        ActivityReminder::create([
+            'server_id' => $server->id,
+            'type' => 'server_renewed',
+            'channel' => 'system',
+            'message' => "نوێکرایەوە تا {$next->format('Y-m-d')}",
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+
+        $this->notification()->send([
+            'icon' => 'success',
+            'title' => 'سێرڤەر نوێکرایەوە',
+            'description' => "{$server->name} تا {$next->format('Y-m-d')}.",
         ]);
     }
 
@@ -175,7 +216,13 @@ class RenewalRadar extends Component
             ? ActivityReminder::where('subscription_id', $selected->id)->latest()->take(4)->get()
             : collect();
 
+        $servers = Server::where('status', 'active')
+            ->whereDate('renewal_date', '<=', now()->addDays(30)->toDateString())
+            ->orderBy('renewal_date')
+            ->get();
+
         return view('livewire.admin.renewal-radar', [
+            'servers' => $servers,
             'groups' => $groups,
             'counts' => $counts,
             'summary' => $summary,
