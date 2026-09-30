@@ -30,7 +30,7 @@ class SubscriptionsManager extends Component
     public ?int $client_id = null;
     public ?int $server_id = null;
     public string $name = '';
-    public string $type = 'bundle';
+    public string $type = 'hosting';
     public string $domain_name = '';
     public string $provider = 'Godaddy';
     public float $cost_price = 0.00;
@@ -272,35 +272,8 @@ class SubscriptionsManager extends Component
 
     public function createRenewalInvoice(int $id): void
     {
-        $sub = Subscription::with('client')->findOrFail($id);
-        
-        $invoiceNumber = Invoice::generateNextInvoiceNumber();
-        
-        $invoice = Invoice::create([
-            'invoice_number' => $invoiceNumber,
-            'client_id' => $sub->client_id,
-            'issue_date' => Carbon::now(),
-            'due_date' => $sub->expiry_date,
-            'subtotal' => $sub->selling_price,
-            'discount' => 0.00,
-            'tax' => 0.00,
-            'total' => $sub->selling_price,
-            'paid_amount' => 0.00,
-            'currency' => $sub->currency,
-            'status' => 'sent',
-            'payment_method' => 'FIB / FastPay / کاش',
-            'notes' => "وەسڵی نوێکردنەوەی ساڵانەی: {$sub->name} ({$sub->domain_name})",
-            'terms' => 'تکایە پێش بەرواری بەسەرچوون گوژمەکە پاکتاو بکەن.',
-        ]);
-
-        InvoiceItem::create([
-            'invoice_id' => $invoice->id,
-            'description' => "نوێکردنەوەی ساڵانەی {$sub->name} ({$sub->type_label})",
-            'quantity' => 1,
-            'unit_price' => $sub->selling_price,
-            'total_price' => $sub->selling_price,
-            'service_type' => $sub->type,
-        ]);
+        $sub = Subscription::findOrFail($id);
+        $invoiceNumber = $sub->createRenewalInvoice()->invoice_number;
 
         $this->notification()->send([
             'icon' => 'success',
@@ -382,23 +355,7 @@ class SubscriptionsManager extends Component
     public function renewSubscription(int $id): void
     {
         $sub = Subscription::findOrFail($id);
-        $currentExpiry = Carbon::parse($sub->expiry_date);
-
-        // If it was expired in the past, add from today or add from current expiry date
-        $baseDate = $currentExpiry->isPast() ? Carbon::now() : $currentExpiry;
-
-        $newExpiry = match ($sub->billing_cycle) {
-            'biennial' => $baseDate->copy()->addYears(2),
-            'semi_annual' => $baseDate->copy()->addMonths(6),
-            'quarterly' => $baseDate->copy()->addMonths(3),
-            'monthly' => $baseDate->copy()->addMonth(),
-            default => $baseDate->copy()->addYear(),
-        };
-
-        $sub->update([
-            'expiry_date' => $newExpiry->format('Y-m-d'),
-            'status' => 'active',
-        ]);
+        $newExpiry = $sub->renew();
 
         $this->notification()->send([
             'icon' => 'success',
@@ -490,12 +447,14 @@ class SubscriptionsManager extends Component
 
         $query = Subscription::with(['client', 'server'])
             ->when($this->search, function ($q) {
-                $q->where('name', 'like', "%{$this->search}%")
-                  ->orWhere('domain_name', 'like', "%{$this->search}%")
-                  ->orWhereHas('client', function ($cq) {
-                      $cq->where('name', 'like', "%{$this->search}%")
-                         ->orWhere('business_name', 'like', "%{$this->search}%");
-                  });
+                $q->where(function ($sq) {
+                    $sq->where('name', 'like', "%{$this->search}%")
+                        ->orWhere('domain_name', 'like', "%{$this->search}%")
+                        ->orWhereHas('client', function ($cq) {
+                            $cq->where('name', 'like', "%{$this->search}%")
+                                ->orWhere('business_name', 'like', "%{$this->search}%");
+                        });
+                });
             })
             ->when($this->typeFilter !== 'all', fn($q) => $q->where('type', $this->typeFilter))
             ->when($this->statusFilter !== 'all', fn($q) => $q->where('status', $this->statusFilter))

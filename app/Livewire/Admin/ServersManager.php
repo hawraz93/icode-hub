@@ -132,21 +132,7 @@ class ServersManager extends Component
     public function renewServer(int $id): void
     {
         $server = Server::findOrFail($id);
-        $currentRenewal = Carbon::parse($server->renewal_date);
-        
-        $baseDate = $currentRenewal->isPast() ? Carbon::now() : $currentRenewal;
-
-        $newRenewal = match ($server->billing_cycle) {
-            'annual' => $baseDate->copy()->addYear(),
-            'semi_annual' => $baseDate->copy()->addMonths(6),
-            'quarterly' => $baseDate->copy()->addMonths(3),
-            default => $baseDate->copy()->addMonth(),
-        };
-
-        $server->update([
-            'renewal_date' => $newRenewal->format('Y-m-d'),
-            'status' => 'active',
-        ]);
+        $newRenewal = $server->renew();
 
         $this->notification()->send([
             'icon' => 'success',

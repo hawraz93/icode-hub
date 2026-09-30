@@ -11,7 +11,12 @@ use Livewire\Component;
 
 class Dashboard extends Component
 {
-    public float $exchangeRate = 1500; // 1 USD = 1,500 IQD
+    public float $exchangeRate = 1500; // 1 USD in IQD, overridden by USD_TO_IQD
+
+    public function mount(): void
+    {
+        $this->exchangeRate = (float) config('app.usd_to_iqd', 1500);
+    }
 
     public function render()
     {
@@ -73,8 +78,7 @@ class Dashboard extends Component
 
         // 5. Subscriptions Expiring in Next 30 Days (Client Collections)
         $expiringSubscriptions = Subscription::with(['client', 'server'])
-            ->where('status', 'active')
-            ->whereBetween('expiry_date', [Carbon::now()->startOfDay(), Carbon::now()->addDays(30)->endOfDay()])
+            ->openRenewals(30)
             ->orderBy('expiry_date', 'asc')
             ->get();
 

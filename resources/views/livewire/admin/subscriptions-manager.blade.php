@@ -123,6 +123,12 @@
                     </div>
 
                     <h3 class="font-extrabold text-slate-900 text-base">{{ $sub->name }}</h3>
+                    @if($sub->status !== 'cancelled' && ($sub->renewal_stage > 0 || $sub->days_until_expiry <= $sub->reminder_days_before))
+                        <a href="{{ route('admin.renewals') }}" class="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold {{ $sub->renewal_stage === 2 ? 'text-indigo-700' : 'text-slate-500' }} hover:text-indigo-700">
+                            <span class="inline-flex gap-0.5">@for($i = 1; $i <= 3; $i++)<i class="w-3 h-1 rounded-full {{ $i <= $sub->renewal_stage ? 'bg-indigo-600' : 'bg-slate-200' }}"></i>@endfor</span>
+                            {{ \App\Models\Subscription::STAGE_LABELS[$sub->renewal_stage] ?? '' }}
+                        </a>
+                    @endif
                     @if($sub->domain_name)
                         <div class="flex items-center justify-between mt-1">
                             <a href="https://{{ $sub->domain_name }}" target="_blank" class="font-mono text-xs text-indigo-600 hover:text-indigo-800 font-bold hover:underline flex items-center gap-1" dir="ltr">
@@ -206,7 +212,7 @@
                         </button>
 
                         <!-- WhatsApp Reminder Button -->
-                        <a href="https://wa.me/{{ preg_replace('/[^0-9]/', '', $sub->client->phone ?? '') }}?text={{ urlencode('سڵاو ڕێز بەڕێز ' . $sub->client->name . '، هیوادارم باش بن. ئاگادارتان دەکەینەوە کە کاتی نوێکردنەوەی ساڵانەی (' . $sub->name . ') لە بەرواری (' . $sub->expiry_date->format('Y-m-d') . ') بەسەردەچێت بە بڕی $' . $sub->selling_price . '. تکایە بۆ بەردەوامبوونی خزمەتگوزارییەکە پەیوەندیمان پێوە بکەن. - iCode Group') }}" 
+                        <a href="{{ $sub->whatsappUrl() ?? route('admin.clients') }}" 
                            target="_blank"
                            class="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white transition shadow-sm"
                            title="ناردنی نامەی واتسئاپ">
@@ -237,19 +243,23 @@
                 <x-native-select
                     label="جۆری خزمەتگوزاری دیاریبکە *"
                     wire:model.live="type"
-                    :options="[
-                        ['name' => '📦 گورزەی دۆمەین + هۆستینگ (Domain & Hosting Bundle)', 'id' => 'bundle'],
-                        ['name' => '🌐 تەنها هۆستینگ (Hosting Only)', 'id' => 'hosting'],
+                    :options="array_merge($type === 'bundle' ? [
+                        ['name' => '📦 گورزەی دۆمەین + هۆستینگ (کۆن)', 'id' => 'bundle'],
+                    ] : [], [
+                        ['name' => '🌐 هۆستینگ (Hosting)', 'id' => 'hosting'],
                         ['name' => '🔗 تەنها دۆمەین (Domain Only)', 'id' => 'domain'],
                         ['name' => '✉️ ئیمەیڵی بزنس (Business Email)', 'id' => 'email'],
                         ['name' => '🖥️ سێرڤەری تایبەت (VPS)', 'id' => 'vps'],
                         ['name' => '🔑 مۆڵەتنامەی بەرنامە (License)', 'id' => 'license'],
                         ['name' => '🛠️ پشتگیری و چاکسازی (Maintenance)', 'id' => 'maintenance'],
                         ['name' => '📁 خزمەتگوزاری تر (Other)', 'id' => 'other'],
-                    ]"
+                    ])"
                     option-label="name"
                     option-value="id"
                 />
+                @if($type === 'domain' && ! $editingId)
+                    <p class="mt-2 text-[11px] text-slate-500">هۆستینگ و دۆمەین بەرواری جیاوازیان هەیە، بۆیە هۆستینگەکە وەک تۆمارێکی جیا زیاد بکە.</p>
+                @endif
             </div>
 
             <!-- 2. Client Selection -->

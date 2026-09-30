@@ -178,7 +178,7 @@
                         </div>
 
                         <!-- WhatsApp Reminder Button -->
-                        <a href="https://wa.me/{{ preg_replace('/[^0-9]/', '', $sub->client->phone ?? '') }}?text={{ urlencode('سڵاو بەڕێز ' . $sub->client->name . '، کاتی نوێکردنەوەی ساڵانەی (' . $sub->name . ') لە بەرواری (' . $sub->expiry_date->format('Y-m-d') . ') نزیکە بە بڕی $' . $sub->selling_price . '. تکایە بۆ نوێکردنەوە پەیوەندیمان پێوە بکەن. - iCode Group') }}" 
+                        <a href="{{ $sub->whatsappUrl() ?? route('admin.clients') }}" 
                            target="_blank" 
                            class="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white transition shadow-xs flex-shrink-0 flex items-center gap-1 text-xs font-bold" 
                            title="واتسئاپ">

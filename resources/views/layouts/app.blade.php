@@ -2,7 +2,14 @@
 <html lang="ckb" dir="rtl" class="h-full">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
+    <link rel="apple-touch-icon" href="{{ asset('icons/apple-touch-icon.png') }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="iCode Hub">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>{{ $title ?? 'داشبۆردی بەڕێوەبردن' }} | iCode Group Hub</title>
     
     <link rel="icon" type="image/png" href="{{ asset('images/logo.png') }}">
@@ -67,6 +74,20 @@
                     <span>داشبۆردی سەرەکی</span>
                 </a>
 
+                @php
+                    $expiringCount = \App\Models\Subscription::openRenewals(30)->count();
+                @endphp
+                <a href="{{ route('admin.renewals') }}" 
+                   class="flex items-center justify-between px-3.5 py-2.5 text-sm font-semibold rounded-xl transition-colors {{ request()->routeIs('admin.renewals') ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"></circle><circle cx="12" cy="12" r="4.5" stroke-width="2"></circle><path stroke-linecap="round" stroke-width="2" d="M12 12l6-6"></path></svg>
+                        <span>ڕاداری نوێکردنەوە</span>
+                    </div>
+                    @if($expiringCount > 0)
+                        <span class="px-2 py-0.5 text-xs font-bold rounded-full {{ request()->routeIs('admin.renewals') ? 'bg-white text-indigo-700' : 'bg-rose-500 text-white' }}">{{ $expiringCount }}</span>
+                    @endif
+                </a>
+
                 <div class="pt-4 px-3 pb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">بەڕێوەبردنی کارەکان</div>
 
                 <a href="{{ route('admin.subscriptions') }}" 
@@ -75,12 +96,6 @@
                         <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
                         <span>هۆستینگ و دۆمەین</span>
                     </div>
-                    @php
-                        $expiringCount = \App\Models\Subscription::where('status', 'active')->whereBetween('expiry_date', [now(), now()->addDays(30)])->count();
-                    @endphp
-                    @if($expiringCount > 0)
-                        <span class="px-2 py-0.5 text-xs font-bold rounded-full {{ request()->routeIs('admin.subscriptions') ? 'bg-white text-indigo-700' : 'bg-rose-500 text-white' }}">{{ $expiringCount }}</span>
-                    @endif
                 </a>
 
                 <a href="{{ route('admin.servers') }}" 
@@ -163,7 +178,7 @@
         <div class="flex flex-col flex-1 min-w-0 overflow-hidden">
             
             <!-- Top Navbar (Mobile Optimized & Clean) -->
-            <header class="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 bg-white border-b border-slate-200 gap-2">
+            <header class="flex items-center justify-between px-3 sm:px-6 py-2.5 sm:py-4 pt-[calc(0.625rem+env(safe-area-inset-top))] sm:pt-4 bg-white border-b border-slate-200 gap-2">
                 <div class="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
                     <button @click="sidebarOpen = true" class="lg:hidden p-2 rounded-xl text-slate-500 hover:bg-slate-100 flex-shrink-0">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
@@ -176,8 +191,7 @@
                 <div class="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
                     @php
                         $expiringSubs = \App\Models\Subscription::with('client')
-                            ->where('status', 'active')
-                            ->where('expiry_date', '<=', now()->addDays(30))
+                            ->openRenewals(30)
                             ->orderBy('expiry_date')
                             ->take(5)
                             ->get();
@@ -260,7 +274,7 @@
                                                 <h4 class="font-bold text-slate-900 text-xs">{{ $sub->name }}</h4>
                                                 <p class="text-slate-500 text-[11px]">کڕیار: {{ $sub->client->business_name ?? $sub->client->name }}</p>
                                             </div>
-                                            <a href="{{ route('admin.subscriptions') }}" class="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-bold transition">
+                                            <a href="{{ route('admin.renewals') }}" class="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-bold transition">
                                                 بینین
                                             </a>
                                         </div>
@@ -330,12 +344,12 @@
             </header>
 
             <!-- Page Body -->
-            <main class="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-28 lg:pb-8">
+            <main class="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-8">
                 {{ $slot }}
             </main>
 
             <!-- Mobile Bottom App Bar (Optimized for Phone Touch UX) -->
-            <nav class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 py-2 px-2 shadow-lg">
+            <nav class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] px-2 shadow-lg">
                 <div class="flex items-center justify-around max-w-md mx-auto">
                     
                     <!-- Dashboard -->
@@ -344,10 +358,10 @@
                         <span class="text-[10px]">داشبۆرد</span>
                     </a>
 
-                    <!-- Subscriptions -->
-                    <a href="{{ route('admin.subscriptions') }}" class="relative flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl transition {{ request()->routeIs('admin.subscriptions') ? 'text-indigo-600 font-extrabold' : 'text-slate-500 hover:text-slate-800' }}">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                        <span class="text-[10px]">هۆستینگ</span>
+                    <!-- Renewal Radar -->
+                    <a href="{{ route('admin.renewals') }}" class="relative flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl transition {{ request()->routeIs('admin.renewals') ? 'text-indigo-600 font-extrabold' : 'text-slate-500 hover:text-slate-800' }}">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"></circle><circle cx="12" cy="12" r="4.5" stroke-width="2"></circle><path stroke-linecap="round" stroke-width="2" d="M12 12l6-6"></path></svg>
+                        <span class="text-[10px]">ڕادار</span>
                         @if($expiringCount > 0)
                             <span class="absolute top-0 right-2 w-2 h-2 bg-rose-500 rounded-full"></span>
                         @endif
@@ -378,5 +392,10 @@
     </div>
 
     @livewireScripts
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+        }
+    </script>
 </body>
 </html>
