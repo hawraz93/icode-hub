@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\ActivityReminder;
+use App\Models\Invoice;
 use App\Models\Server;
 use App\Models\Subscription;
 use App\Services\RenewalBot;
@@ -35,25 +36,30 @@ class ScanRenewals extends Command
         $expiredCount = $dryRun ? 0 : $this->markExpired();
 
         $subscriptions = $this->dueSubscriptions();
+        $invoices = $this->dueInvoices();
         $servers = $this->dueServers();
 
         if ($expiredCount) {
             $this->info("{$expiredCount} subscription(s) marked as expired.");
         }
 
-        if ($subscriptions->isEmpty() && $servers->isEmpty()) {
+        if ($subscriptions->isEmpty() && $servers->isEmpty() && $invoices->isEmpty()) {
             $this->info('Nothing needs a reminder today.');
 
             return self::SUCCESS;
         }
 
-        $message = $this->buildMessage($subscriptions, $servers);
+        $message = $this->buildMessage($subscriptions, $servers, $invoices);
 
         if ($dryRun) {
             $this->line(html_entity_decode(strip_tags($message)));
             foreach ($subscriptions as $sub) {
                 $this->line('');
                 $this->line(html_entity_decode(strip_tags($bot->card($sub)[0])));
+            }
+            foreach ($invoices as $inv) {
+                $this->line('');
+                $this->line(html_entity_decode(strip_tags($bot->invoiceCard($inv)[0])));
             }
 
             return self::SUCCESS;
@@ -68,6 +74,9 @@ class ScanRenewals extends Command
             foreach ($subscriptions as $sub) {
                 $bot->sendCard($sub);
             }
+            foreach ($invoices as $inv) {
+                $bot->sendInvoiceCard($inv);
+            }
         }
 
         foreach ($subscriptions as $sub) {
@@ -78,6 +87,20 @@ class ScanRenewals extends Command
                 'channel' => 'telegram',
                 'recipient' => $telegram->chatId(),
                 'message' => "{$sub->name}: {$sub->expiry_status_text}",
+                'status' => $sent ? 'sent' : 'failed',
+                'sent_at' => $sent ? now() : null,
+            ]);
+        }
+
+        foreach ($invoices as $inv) {
+            ActivityReminder::create([
+                'client_id' => $inv->client_id,
+                'subscription_id' => $inv->subscription_id,
+                'invoice_id' => $inv->id,
+                'type' => 'invoice_due',
+                'channel' => 'telegram',
+                'recipient' => $telegram->chatId(),
+                'message' => "{$inv->invoice_number}: {$inv->remaining_balance} {$inv->currency}",
                 'status' => $sent ? 'sent' : 'failed',
                 'sent_at' => $sent ? now() : null,
             ]);
@@ -105,6 +128,31 @@ class ScanRenewals extends Command
         $this->error('Digest was not delivered; recorded as failed in activity_reminders.');
 
         return self::FAILURE;
+    }
+
+    /**
+     * Payments due in 3 days, today, or overdue (daily for 30 days, then Mondays), not already sent today.
+     */
+    private function dueInvoices(): Collection
+    {
+        $force = (bool) $this->option('force');
+        $today = Carbon::today();
+
+        return Invoice::with(['client', 'subscription'])
+            ->whereIn('status', ['sent', 'partial', 'overdue'])
+            ->whereColumn('paid_amount', '<', 'total')
+            ->whereDate('due_date', '<=', $today->copy()->addDays(3)->toDateString())
+            ->orderBy('due_date')
+            ->get()
+            ->filter(function (Invoice $inv) use ($force, $today) {
+                if (! $force && ActivityReminder::where('invoice_id', $inv->id)->where('type', 'invoice_due')->whereDate('created_at', $today)->exists()) {
+                    return false;
+                }
+                $days = (int) $today->diffInDays($inv->due_date, false);
+
+                return in_array($days, [3, 0], true) || ($days < 0 && ($days >= -30 || $today->isMonday()));
+            })
+            ->values();
     }
 
     private function markExpired(): int
@@ -152,7 +200,7 @@ class ScanRenewals extends Command
             ->values();
     }
 
-    private function buildMessage(Collection $subscriptions, Collection $servers): string
+    private function buildMessage(Collection $subscriptions, Collection $servers, ?Collection $invoices = null): string
     {
         $e = fn (?string $s) => TelegramNotifier::escape($s);
 
@@ -179,6 +227,11 @@ class ScanRenewals extends Command
 
         $unpaid = $subscriptions->where('renewal_stage', '<', Subscription::STAGE_PAID)->sum('selling_usd');
         $cost = $subscriptions->sum('cost_usd');
+        if ($invoices && $invoices->isNotEmpty()) {
+            $owed = $invoices->sum(fn ($i) => Subscription::toUsd($i->remaining_balance, $i->currency));
+            $lines[] = '💳 <b>پارەی چاوەڕوانکراو:</b> ' . $invoices->count() . ' · $' . number_format((float) $owed, 0);
+            $lines[] = '';
+        }
         $lines[] = '💵 وەرگرتن لە کڕیاران: <b>$' . number_format((float) $unpaid, 0) . '</b> · پارەدان بە دابینکەر: <b>$' . number_format((float) $cost, 0) . '</b>';
         $lines[] = '👉 ' . $e(route('admin.renewals'));
 

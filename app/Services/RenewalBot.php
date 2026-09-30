@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Livewire\Admin\RenewalRadar;
 use App\Models\ActivityReminder;
 use App\Models\Client;
+use App\Models\Invoice;
 use App\Models\Subscription;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\URL;
@@ -83,6 +84,41 @@ class RenewalBot
         return URL::temporarySignedRoute('renewals.whatsapp', now()->addDays(14), ['subscription' => $sub->id, 'lang' => $lang]);
     }
 
+    /**
+     * @return array{0: string, 1: array<int, array<int, array<string, string>>>}
+     */
+    public function invoiceCard(Invoice $inv): array
+    {
+        $e = fn ($s) => TelegramNotifier::escape($s);
+        $inv->loadMissing('client', 'subscription');
+        $today = \Carbon\Carbon::today();
+        $when = match (true) {
+            $inv->due_date->lt($today) => '🔴 ' . $inv->due_date->diffInDays($today) . ' ڕۆژ دواکەوتووە',
+            $inv->due_date->isToday() => '🟠 ئەمڕۆ',
+            default => '🟡 ماوە ' . $today->diffInDays($inv->due_date) . ' ڕۆژ',
+        };
+
+        $text = '💳 <b>' . $e($inv->client?->business_name ?: $inv->client?->name) . "</b>\n"
+            . ($inv->subscription?->domain_name ? '<code>' . $e($inv->subscription->domain_name) . "</code>\n" : '')
+            . 'بڕ: <b>' . $e(Subscription::formatAmount($inv->remaining_balance, $inv->currency)) . '</b> · کاتی دان ' . $inv->due_date->format('Y-m-d') . "\n"
+            . $when;
+
+        $row = [];
+        if ($url = $inv->paymentReminderUrl()) {
+            $row[] = ['text' => '📤 بیرخستنەوە', 'url' => $url];
+        }
+        $row[] = ['text' => '💰 وەرگیرا', 'callback_data' => "v:{$inv->id}"];
+
+        return [$text, [$row]];
+    }
+
+    public function sendInvoiceCard(Invoice $inv): ?int
+    {
+        [$text, $keyboard] = $this->invoiceCard($inv);
+
+        return $this->telegram->sendWithButtons($text, $keyboard);
+    }
+
     public function sendCard(Subscription $sub): ?int
     {
         [$text, $keyboard] = $this->card($sub);
@@ -119,6 +155,21 @@ class RenewalBot
 
         $parts = explode(':', (string) ($cq['data'] ?? ''));
         $action = $parts[0] ?? '';
+
+        if ($action === 'v') {
+            $inv = Invoice::with('client')->find((int) ($parts[1] ?? 0));
+            if ($inv && $inv->status !== 'paid') {
+                $inv->markPaid();
+            }
+            $this->telegram->answerCallback($cq['id'], $inv ? '💰 تۆمارکرا' : 'نەدۆزرایەوە');
+            if ($inv) {
+                $this->telegram->editMessage($chatId, $messageId,
+                    '✅ پارەی <b>' . TelegramNotifier::escape(Subscription::formatAmount((float) $inv->total, $inv->currency)) . '</b> وەرگیرا · '
+                    . TelegramNotifier::escape($inv->client?->business_name ?: $inv->client?->name));
+            }
+
+            return;
+        }
 
         if (in_array($action, ['s', 'c', 'd'], true)) {
             $this->handleDraftCallback($cq, $parts, $chatId, $messageId);
@@ -211,6 +262,9 @@ class RenewalBot
                 $this->telegram->sendWithButtons('✨ هیچ شتێک لە ٧ ڕۆژی داهاتوودا بەسەرناچێت.');
             }
             $subs->each(fn ($s) => $this->sendCard($s));
+            Invoice::whereIn('status', ['sent', 'partial', 'overdue'])->whereColumn('paid_amount', '<', 'total')
+                ->whereDate('due_date', '<=', now()->addDays(7)->toDateString())->orderBy('due_date')->get()
+                ->each(fn ($i) => $this->sendInvoiceCard($i));
 
             return;
         }

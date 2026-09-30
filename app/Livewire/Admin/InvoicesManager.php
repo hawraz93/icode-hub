@@ -139,11 +139,7 @@ class InvoicesManager extends Component
     public function markAsPaid(int $id): void
     {
         $invoice = Invoice::findOrFail($id);
-        $invoice->update([
-            'status' => 'paid',
-            'paid_amount' => $invoice->total,
-            'paid_at' => Carbon::now(),
-        ]);
+        $invoice->markPaid();
 
         $this->notification()->send([
             'icon' => 'success',

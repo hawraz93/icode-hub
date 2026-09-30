@@ -15,6 +15,7 @@ class Invoice extends Model
     protected $fillable = [
         'invoice_number',
         'client_id',
+        'subscription_id',
         'contract_id',
         'project_id',
         'issue_date',
@@ -48,6 +49,58 @@ class Invoice extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function subscription(): BelongsTo
+    {
+        return $this->belongsTo(Subscription::class);
+    }
+
+    /**
+     * Record full payment of whatever is still owed.
+     */
+    public function markPaid(?string $method = null): void
+    {
+        $this->update([
+            'status' => 'paid',
+            'paid_amount' => $this->total,
+            'paid_at' => now(),
+            'payment_method' => $method ?? $this->payment_method,
+        ]);
+
+        ActivityReminder::create([
+            'client_id' => $this->client_id,
+            'subscription_id' => $this->subscription_id,
+            'invoice_id' => $this->id,
+            'type' => 'invoice_paid',
+            'channel' => 'system',
+            'message' => "پارەی وەسڵی {$this->invoice_number} وەرگیرا",
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+    }
+
+    /**
+     * wa.me link with a polite payment reminder for this invoice, or null when the client has no number.
+     */
+    public function paymentReminderUrl(): ?string
+    {
+        $client = $this->client;
+        $number = $client?->whatsapp_number;
+        if (! $number) {
+            return null;
+        }
+
+        $what = $this->subscription?->domain_name ?: ($this->items()->value('description') ?? $this->invoice_number);
+        $amount = Subscription::formatAmount($this->remaining_balance, $this->currency);
+        $when = $this->due_date->isPast() && ! $this->due_date->isToday()
+            ? "کە لە {$this->due_date->format('Y-m-d')} کاتی دانی بوو"
+            : "کە لە {$this->due_date->format('Y-m-d')} کاتی دانییەتی";
+        $text = "سڵاو بەڕێز " . ($client->business_name ?: $client->name) . "،\n"
+            . "بیرخستنەوەیەکی دۆستانە: بڕی {$amount} بۆ {$what} {$when}.\n"
+            . "پارەدان: FIB · FastPay · کاش\nسوپاس — iCode Group";
+
+        return "https://wa.me/{$number}?text=" . rawurlencode($text);
     }
 
     public function contract(): BelongsTo

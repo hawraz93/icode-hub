@@ -61,7 +61,7 @@ class QuickAdd extends Component
             'newClientPhone' => 'nullable|string|max:50',
         ], [], ['newClientName' => 'ناوی کڕیار']);
 
-        $client = Client::create([
+        $client = ($this->newClientPhone ? Client::findByPhone($this->newClientPhone) : null) ?? Client::create([
             'name' => $this->newClientName,
             'phone' => $this->newClientPhone ?: null,
             'whatsapp' => $this->newClientPhone ?: null,

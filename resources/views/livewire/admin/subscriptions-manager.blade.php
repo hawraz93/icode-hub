@@ -182,6 +182,19 @@
                     </div>
                 </div>
 
+                @php $owed = $sub->unpaid_balance_usd; @endphp
+                @if($owed > 0 || $sub->payment_plan === 'monthly')
+                    <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2 text-[11px] {{ $owed > 0 ? 'bg-rose-50 text-rose-800' : 'bg-indigo-50 text-indigo-800' }}">
+                        <span>
+                            @if($owed > 0)
+                                قەرز: <b class="font-mono" dir="ltr">${{ number_format($owed, 0) }}</b> · کاتی دان {{ $sub->next_due_invoice?->due_date->format('Y-m-d') }}
+                            @else
+                                مانگانە {{ \App\Models\Subscription::formatAmount((float) $sub->installment_amount, $sub->currency) }} · ڕۆژی {{ $sub->payment_day }}
+                            @endif
+                        </span>
+                    </div>
+                @endif
+
                 <!-- Card Actions -->
                 <div class="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                     <div class="flex items-center gap-1.5">
@@ -202,6 +215,12 @@
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                             <span>نوێکردنەوە</span>
                         </button>
+
+                        <a href="{{ route('admin.renewals', ['open' => $sub->id]) }}"
+                           class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-900 text-slate-700 hover:text-white transition"
+                           title="پارەدان و قەرز">
+                            💰 <span>پارەدان</span>
+                        </a>
 
                         <!-- Auto Create Renewal Invoice Button -->
                         <button wire:click="createRenewalInvoice({{ $sub->id }})" 
@@ -375,7 +394,7 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                 <div>
                     <x-native-select
-                        label="ماوەی پارەدان *"
+                        label="ماوەی خزمەتگوزاری (بۆ چەند کڕاوە) *"
                         wire:model.live="billing_cycle"
                         :options="[
                             ['name' => 'ساڵانە (Annual - ١ ساڵ)', 'id' => 'annual'],
@@ -387,6 +406,28 @@
                         option-label="name"
                         option-value="id"
                     />
+                </div>
+
+                <div class="md:col-span-2 rounded-2xl bg-indigo-50/60 border border-indigo-100 p-3 space-y-3">
+                    <x-native-select
+                        label="کڕیار چۆن پارە دەدات؟"
+                        wire:model.live="payment_plan"
+                        :options="[
+                            ['name' => 'هەموو پارەکە بە یەکجار (بۆ هەموو ماوەکە)', 'id' => 'upfront'],
+                            ['name' => 'مانگانە (قیست)', 'id' => 'monthly'],
+                        ]"
+                        option-label="name"
+                        option-value="id"
+                    />
+                    @if($payment_plan === 'monthly')
+                        <div class="grid grid-cols-2 gap-3">
+                            <x-input label="بڕی هەر مانگێک" type="number" step="any" wire:model="installment_amount" />
+                            <x-input label="ڕۆژی پارەدان لە مانگدا (١-٢٨)" type="number" min="1" max="28" wire:model="payment_day" />
+                        </div>
+                        <p class="text-[11px] text-indigo-800">هەموو مانگێک لەو ڕۆژەدا وەسڵێک خۆکار دروست دەبێت و لە ڕادار و تێلێگرام بیرت دەخاتەوە.</p>
+                    @else
+                        <p class="text-[11px] text-slate-500">ئەگەر کڕیار دواتر دەیدات (بۆ نموونە «سەری مانگ»)، دوای تۆمارکردن لە ڕادار «+ تۆمارکردنی قەرز» بەکاربهێنە.</p>
+                    @endif
                 </div>
 
                 <div>
@@ -433,7 +474,7 @@
 
         <x-slot name="footer">
             <div class="flex items-center justify-between w-full">
-                <x-button primary label="{{ $editingId ? 'نوێکردنەوە' : 'تۆمارکردن' }}" wire:click="save" />
+                <x-button primary label="{{ $editingId ? 'نوێکردنەوە' : 'تۆمارکردن' }}" wire:click="save" spinner="save" />
                 <x-button flat label="پاشگەزبوونەوە" x-on:click="close" />
             </div>
         </x-slot>
@@ -482,7 +523,7 @@
 
         <x-slot name="footer">
             <div class="flex items-center justify-between w-full">
-                <x-button primary label="تۆمارکردن و هەڵبژاردن" wire:click="saveQuickClient" />
+                <x-button primary label="تۆمارکردن و هەڵبژاردن" wire:click="saveQuickClient" spinner="saveQuickClient" />
                 <x-button flat label="پاشگەزبوونەوە" x-on:click="close" />
             </div>
         </x-slot>
