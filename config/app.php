@@ -67,6 +67,9 @@ return [
 
     'timezone' => env('APP_TIMEZONE', 'Asia/Baghdad'),
 
+    // Exchange rate used for IQD equivalents in client reminders
+    'usd_to_iqd' => (float) env('USD_TO_IQD', 1500),
+
     /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration

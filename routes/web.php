@@ -7,6 +7,7 @@ use App\Livewire\Admin\ExpensesManager;
 use App\Livewire\Admin\InvoicesManager;
 use App\Livewire\Admin\ProfileManager;
 use App\Livewire\Admin\ProjectsManager;
+use App\Livewire\Admin\RenewalRadar;
 use App\Livewire\Admin\ServersManager;
 use App\Livewire\Admin\SubscriptionsManager;
 use App\Livewire\Auth\Login;
@@ -37,6 +38,7 @@ Route::post('/logout', function () {
 // Admin Operating System Routes (Protected by Auth)
 Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::get('/', Dashboard::class)->name('dashboard');
+    Route::get('/renewals', RenewalRadar::class)->name('renewals');
     Route::get('/subscriptions', SubscriptionsManager::class)->name('subscriptions');
     Route::get('/servers', ServersManager::class)->name('servers');
     Route::get('/expenses', ExpensesManager::class)->name('expenses');

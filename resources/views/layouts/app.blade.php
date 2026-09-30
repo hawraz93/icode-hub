@@ -67,6 +67,20 @@
                     <span>داشبۆردی سەرەکی</span>
                 </a>
 
+                @php
+                    $expiringCount = \App\Models\Subscription::openRenewals(30)->count();
+                @endphp
+                <a href="{{ route('admin.renewals') }}" 
+                   class="flex items-center justify-between px-3.5 py-2.5 text-sm font-semibold rounded-xl transition-colors {{ request()->routeIs('admin.renewals') ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"></circle><circle cx="12" cy="12" r="4.5" stroke-width="2"></circle><path stroke-linecap="round" stroke-width="2" d="M12 12l6-6"></path></svg>
+                        <span>ڕاداری نوێکردنەوە</span>
+                    </div>
+                    @if($expiringCount > 0)
+                        <span class="px-2 py-0.5 text-xs font-bold rounded-full {{ request()->routeIs('admin.renewals') ? 'bg-white text-indigo-700' : 'bg-rose-500 text-white' }}">{{ $expiringCount }}</span>
+                    @endif
+                </a>
+
                 <div class="pt-4 px-3 pb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">بەڕێوەبردنی کارەکان</div>
 
                 <a href="{{ route('admin.subscriptions') }}" 
@@ -75,12 +89,6 @@
                         <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
                         <span>هۆستینگ و دۆمەین</span>
                     </div>
-                    @php
-                        $expiringCount = \App\Models\Subscription::where('status', 'active')->whereBetween('expiry_date', [now(), now()->addDays(30)])->count();
-                    @endphp
-                    @if($expiringCount > 0)
-                        <span class="px-2 py-0.5 text-xs font-bold rounded-full {{ request()->routeIs('admin.subscriptions') ? 'bg-white text-indigo-700' : 'bg-rose-500 text-white' }}">{{ $expiringCount }}</span>
-                    @endif
                 </a>
 
                 <a href="{{ route('admin.servers') }}" 
@@ -176,8 +184,7 @@
                 <div class="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
                     @php
                         $expiringSubs = \App\Models\Subscription::with('client')
-                            ->where('status', 'active')
-                            ->where('expiry_date', '<=', now()->addDays(30))
+                            ->openRenewals(30)
                             ->orderBy('expiry_date')
                             ->take(5)
                             ->get();
@@ -260,7 +267,7 @@
                                                 <h4 class="font-bold text-slate-900 text-xs">{{ $sub->name }}</h4>
                                                 <p class="text-slate-500 text-[11px]">کڕیار: {{ $sub->client->business_name ?? $sub->client->name }}</p>
                                             </div>
-                                            <a href="{{ route('admin.subscriptions') }}" class="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-bold transition">
+                                            <a href="{{ route('admin.renewals') }}" class="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-bold transition">
                                                 بینین
                                             </a>
                                         </div>
@@ -344,10 +351,10 @@
                         <span class="text-[10px]">داشبۆرد</span>
                     </a>
 
-                    <!-- Subscriptions -->
-                    <a href="{{ route('admin.subscriptions') }}" class="relative flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl transition {{ request()->routeIs('admin.subscriptions') ? 'text-indigo-600 font-extrabold' : 'text-slate-500 hover:text-slate-800' }}">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path></svg>
-                        <span class="text-[10px]">هۆستینگ</span>
+                    <!-- Renewal Radar -->
+                    <a href="{{ route('admin.renewals') }}" class="relative flex flex-col items-center gap-1 py-1 px-2.5 rounded-xl transition {{ request()->routeIs('admin.renewals') ? 'text-indigo-600 font-extrabold' : 'text-slate-500 hover:text-slate-800' }}">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="2"></circle><circle cx="12" cy="12" r="4.5" stroke-width="2"></circle><path stroke-linecap="round" stroke-width="2" d="M12 12l6-6"></path></svg>
+                        <span class="text-[10px]">ڕادار</span>
                         @if($expiringCount > 0)
                             <span class="absolute top-0 right-2 w-2 h-2 bg-rose-500 rounded-full"></span>
                         @endif

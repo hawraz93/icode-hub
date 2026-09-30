@@ -206,7 +206,7 @@
                         </button>
 
                         <!-- WhatsApp Reminder Button -->
-                        <a href="https://wa.me/{{ preg_replace('/[^0-9]/', '', $sub->client->phone ?? '') }}?text={{ urlencode('سڵاو ڕێز بەڕێز ' . $sub->client->name . '، هیوادارم باش بن. ئاگادارتان دەکەینەوە کە کاتی نوێکردنەوەی ساڵانەی (' . $sub->name . ') لە بەرواری (' . $sub->expiry_date->format('Y-m-d') . ') بەسەردەچێت بە بڕی $' . $sub->selling_price . '. تکایە بۆ بەردەوامبوونی خزمەتگوزارییەکە پەیوەندیمان پێوە بکەن. - iCode Group') }}" 
+                        <a href="{{ $sub->whatsappUrl() ?? route('admin.clients') }}" 
                            target="_blank"
                            class="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white transition shadow-sm"
                            title="ناردنی نامەی واتسئاپ">
