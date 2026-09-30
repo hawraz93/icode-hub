@@ -426,11 +426,11 @@ class SubscriptionsManager extends Component
     public function render()
     {
         $allActive = Subscription::where('status', 'active')->get();
-        $totalHostingRevenue = $allActive->whereIn('type', ['hosting', 'bundle'])->sum('selling_price');
-        $totalDomainRevenue = $allActive->where('type', 'domain')->sum('selling_price');
-        $totalEmailRevenue = $allActive->where('type', 'email')->sum('selling_price');
-        $totalSubscriptionsCost = $allActive->sum('cost_price');
-        $totalSubscriptionsRevenue = $allActive->sum('selling_price');
+        $totalHostingRevenue = $allActive->whereIn('type', ['hosting', 'bundle'])->sum('selling_usd');
+        $totalDomainRevenue = $allActive->where('type', 'domain')->sum('selling_usd');
+        $totalEmailRevenue = $allActive->where('type', 'email')->sum('selling_usd');
+        $totalSubscriptionsCost = $allActive->sum('cost_usd');
+        $totalSubscriptionsRevenue = $allActive->sum('selling_usd');
 
         // Extract available years for filter (Database agnostic)
         $availableYears = Subscription::whereNotNull('expiry_date')
@@ -461,8 +461,8 @@ class SubscriptionsManager extends Component
             ->when($this->yearFilter !== 'all', fn($q) => $q->whereYear('expiry_date', $this->yearFilter));
 
         $filteredSubscriptions = (clone $query)->get();
-        $filteredRevenue = $filteredSubscriptions->sum('selling_price');
-        $filteredCost = $filteredSubscriptions->sum('cost_price');
+        $filteredRevenue = $filteredSubscriptions->sum('selling_usd');
+        $filteredCost = $filteredSubscriptions->sum('cost_usd');
         $filteredProfit = max(0, $filteredRevenue - $filteredCost);
 
         $subscriptions = $query->orderBy('expiry_date', 'asc')->paginate(12);

@@ -187,12 +187,12 @@ class RenewalRadar extends Component
         $rate = (float) config('app.usd_to_iqd', 1500);
 
         $summary = [
-            'collect' => (float) $unpaid->sum('selling_price'),
-            'collect_iqd' => (float) $unpaid->sum('selling_price') * $rate,
+            'collect' => (float) $unpaid->sum('selling_usd'),
+            'collect_iqd' => (float) $unpaid->sum('selling_usd') * $rate,
             'collect_clients' => $unpaid->pluck('client_id')->unique()->count(),
-            'pay' => (float) $next30->sum('cost_price'),
+            'pay' => (float) $next30->sum('cost_usd'),
             'pay_count' => $next30->count(),
-            'profit' => (float) $next30->sum(fn ($s) => $s->selling_price - $s->cost_price),
+            'profit' => (float) $next30->sum(fn ($s) => $s->selling_usd - $s->cost_usd),
             'paid_not_renewed' => $all->where('renewal_stage', Subscription::STAGE_PAID)->count(),
         ];
 

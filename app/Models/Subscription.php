@@ -149,6 +149,58 @@ class Subscription extends Model
     }
 
     /**
+     * Convert an amount in the given currency to USD (IQD uses USD_TO_IQD).
+     */
+    public static function toUsd(float $amount, ?string $currency): float
+    {
+        return strtoupper((string) $currency) === 'IQD'
+            ? $amount / max(1, (float) config('app.usd_to_iqd', 1500))
+            : $amount;
+    }
+
+    /**
+     * "$100" for dollars, "100,000 د.ع" for dinars.
+     */
+    public static function formatAmount(float $amount, ?string $currency): string
+    {
+        if (strtoupper((string) $currency) === 'IQD') {
+            return number_format($amount) . ' د.ع';
+        }
+        $decimals = fmod($amount, 1) == 0 ? 0 : 2;
+
+        return (strtoupper((string) ($currency ?: 'USD')) === 'USD' ? '$' : $currency . ' ') . number_format($amount, $decimals);
+    }
+
+    public function getSellingUsdAttribute(): float
+    {
+        return self::toUsd((float) $this->selling_price, $this->currency);
+    }
+
+    public function getCostUsdAttribute(): float
+    {
+        return self::toUsd((float) $this->cost_price, $this->currency);
+    }
+
+    public function getSellingLabelAttribute(): string
+    {
+        return self::formatAmount((float) $this->selling_price, $this->currency);
+    }
+
+    /**
+     * Price line for client messages: dinar prices stay in dinars, dollar prices get an IQD hint.
+     */
+    private function priceForMessage(): string
+    {
+        if (strtoupper((string) $this->currency) === 'IQD') {
+            return $this->selling_label;
+        }
+
+        $iqd = number_format((float) $this->selling_price * (float) config('app.usd_to_iqd', 1500));
+
+        return "{$this->selling_label} (≈ {$iqd} د.ع)";
+    }
+
+    /**
      * Ready-to-send WhatsApp reminder text for the client.
      */
     public function whatsappMessage(string $lang = 'ku'): string
@@ -157,8 +209,7 @@ class Subscription extends Model
         $clientName = $client?->business_name ?: $client?->name;
         $target = $this->domain_name ?: $this->name;
         $date = $this->expiry_date->format('Y-m-d');
-        $price = rtrim(rtrim(number_format((float) $this->selling_price, 2, '.', ''), '0'), '.');
-        $iqd = number_format((float) $this->selling_price * (float) config('app.usd_to_iqd', 1500));
+        $price = $this->priceForMessage();
         $expired = $this->days_until_expiry < 0;
 
         if ($lang === 'ar') {
@@ -170,7 +221,7 @@ class Subscription extends Model
             };
             $verb = $expired ? 'انتهى بتاريخ' : 'ينتهي بتاريخ';
 
-            return "مرحباً {$clientName}،\nنود تذكيركم بأن {$what} ({$target}) {$verb} {$date}.\nمبلغ التجديد: \${$price} (≈ {$iqd} د.ع)\nالدفع عبر FIB أو FastPay أو نقداً.\n— iCode Group";
+            return "مرحباً {$clientName}،\nنود تذكيركم بأن {$what} ({$target}) {$verb} {$date}.\nمبلغ التجديد: {$price}\nالدفع عبر FIB أو FastPay أو نقداً.\n— iCode Group";
         }
 
         $what = match ($this->type) {
@@ -188,7 +239,7 @@ class Subscription extends Model
         };
         $when = $expired ? "لە {$date} بەسەرچووە" : "لە بەرواری {$date} بەسەردەچێت";
 
-        return "سڵاو بەڕێز {$clientName}،\n{$what} {$target} {$when}.\n{$warn}\nبڕی نوێکردنەوە: \${$price} (≈ {$iqd} د.ع)\nپارەدان: FIB · FastPay · کاش\n— iCode Group";
+        return "سڵاو بەڕێز {$clientName}،\n{$what} {$target} {$when}.\n{$warn}\nبڕی نوێکردنەوە: {$price}\nپارەدان: FIB · FastPay · کاش\n— iCode Group";
     }
 
     public function whatsappUrl(string $lang = 'ku'): ?string
@@ -250,12 +301,12 @@ class Subscription extends Model
     public function getMonthlySellingPriceAttribute(): float
     {
         return match ($this->billing_cycle) {
-            'monthly' => (float) $this->selling_price,
-            'quarterly' => (float) ($this->selling_price / 3),
-            'semi_annual' => (float) ($this->selling_price / 6),
-            'annual' => (float) ($this->selling_price / 12),
-            'biennial' => (float) ($this->selling_price / 24),
-            default => (float) ($this->selling_price / 12),
+            'monthly' => $this->selling_usd,
+            'quarterly' => $this->selling_usd / 3,
+            'semi_annual' => $this->selling_usd / 6,
+            'annual' => $this->selling_usd / 12,
+            'biennial' => $this->selling_usd / 24,
+            default => $this->selling_usd / 12,
         };
     }
 

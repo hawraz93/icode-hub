@@ -46,6 +46,38 @@ class RenewalsTest extends TestCase
         $this->assertNull($this->client(['phone' => null])->whatsapp_number);
     }
 
+    public function test_dinar_prices_stay_in_dinars_and_totals_convert_to_dollars(): void
+    {
+        config(['app.usd_to_iqd' => 1500]);
+        $c = $this->client();
+        $iqd = $this->sub($c, 5, ['type' => 'domain', 'domain_name' => 'ghsooncompany.com.iq', 'currency' => 'IQD', 'selling_price' => 100000, 'cost_price' => 45000]);
+        $usd = $this->sub($c, 5, ['type' => 'domain', 'domain_name' => 'epochsp.com', 'currency' => 'USD', 'selling_price' => 100, 'cost_price' => 12]);
+
+        $this->assertSame('100,000 د.ع', $iqd->selling_label);
+        $this->assertStringContainsString('بڕی نوێکردنەوە: 100,000 د.ع', $iqd->whatsappMessage('ku'));
+        $this->assertStringNotContainsString('$', $iqd->whatsappMessage('ku'));
+        $this->assertStringContainsString('بڕی نوێکردنەوە: $100 (≈ 150,000 د.ع)', $usd->whatsappMessage('ku'));
+
+        $this->actingAs(User::factory()->create());
+        $summary = Livewire::test(RenewalRadar::class)->viewData('summary');
+        $this->assertEqualsWithDelta(100 + 100000 / 1500, $summary['collect'], 0.01);
+        $this->assertEqualsWithDelta(12 + 45000 / 1500, $summary['pay'], 0.01);
+    }
+
+    public function test_long_expired_items_are_reminded_on_mondays_only(): void
+    {
+        config(['services.telegram.bot_token' => 'TEST', 'services.telegram.chat_id' => '42']);
+        Http::fake(['api.telegram.org/*' => Http::response(['ok' => true])]);
+        $this->sub($this->client(), -90, ['domain_name' => 'norduz.net']);
+
+        $this->travelTo(now()->next('Tuesday'));
+        $this->artisan('renewals:scan')->expectsOutput('Nothing needs a reminder today.');
+
+        $this->travelTo(now()->next('Monday'));
+        $this->artisan('renewals:scan')->assertSuccessful();
+        Http::assertSent(fn ($r) => str_contains($r['text'], 'norduz.net'));
+    }
+
     public function test_open_renewals_includes_expired_but_not_cancelled_or_far_away(): void
     {
         $c = $this->client();

@@ -1,6 +1,6 @@
 @php
     $U = \App\Livewire\Admin\RenewalRadar::URGENCY;
-    $money = fn ($v, $cur = 'USD') => ($cur === 'USD' ? '$' : $cur . ' ') . number_format((float) $v, fmod((float) $v, 1) == 0 ? 0 : 2);
+    $money = fn ($v, $cur = 'USD') => \App\Models\Subscription::formatAmount((float) $v, $cur);
     $typeMeta = [
         'domain' => ['دۆمەین', 'M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z'],
         'bundle' => ['دۆمەین + هۆستینگ', 'M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z'],

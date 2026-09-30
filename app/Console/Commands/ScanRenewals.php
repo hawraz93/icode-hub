@@ -121,7 +121,9 @@ class ScanRenewals extends Command
 
                 return ($days <= self::DAILY_WINDOW && $days >= -self::OVERDUE_WINDOW)
                     || in_array($days, self::MILESTONES, true)
-                    || $days === (int) $sub->reminder_days_before;
+                    || $days === (int) $sub->reminder_days_before
+                    // Long-lapsed items stay in the radar; nudge about them once a week so they get renewed or cancelled.
+                    || ($days < -self::OVERDUE_WINDOW && Carbon::today()->isMonday());
             })
             ->values();
     }
@@ -161,7 +163,7 @@ class ScanRenewals extends Command
                 $client = $sub->client?->business_name ?: $sub->client?->name;
                 $stage = Subscription::STAGE_LABELS[$sub->renewal_stage] ?? '';
                 $lines[] = '• <code>' . $e($sub->domain_name ?: $sub->name) . '</code> · ' . $e($this->typeShort($sub->type));
-                $lines[] = '   ' . $e($client) . ' · ' . $e($sub->expiry_status_text) . ' · $' . number_format((float) $sub->selling_price, 0);
+                $lines[] = '   ' . $e($client) . ' · ' . $e($sub->expiry_status_text) . ' · ' . $e($sub->selling_label);
                 $lines[] = '   ↳ ' . $e($stage);
             }
             $lines[] = '';
@@ -176,8 +178,8 @@ class ScanRenewals extends Command
             $lines[] = '';
         }
 
-        $unpaid = $subscriptions->where('renewal_stage', '<', Subscription::STAGE_PAID)->sum('selling_price');
-        $cost = $subscriptions->sum('cost_price');
+        $unpaid = $subscriptions->where('renewal_stage', '<', Subscription::STAGE_PAID)->sum('selling_usd');
+        $cost = $subscriptions->sum('cost_usd');
         $lines[] = '💵 وەرگرتن لە کڕیاران: <b>$' . number_format((float) $unpaid, 0) . '</b> · پارەدان بە دابینکەر: <b>$' . number_format((float) $cost, 0) . '</b>';
         $lines[] = '👉 ' . $e(route('admin.renewals'));
 

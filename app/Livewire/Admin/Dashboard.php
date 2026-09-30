@@ -30,7 +30,7 @@ class Dashboard extends Component
         // 2. Client Revenue (Purely from paying clients)
         $totalAnnualRevenueUsd = 0;
         foreach ($activeSubscriptions as $sub) {
-            $selling = (float) $sub->selling_price;
+            $selling = $sub->selling_usd;
             $multiplier = match ($sub->billing_cycle) {
                 'biennial' => 0.5,
                 'semi_annual' => 2.0,
