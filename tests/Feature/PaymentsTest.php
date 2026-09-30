@@ -70,6 +70,41 @@ class PaymentsTest extends TestCase
         $this->assertSame(0.0, $sub->fresh()->unpaid_balance_usd);
     }
 
+    public function test_form_asks_if_client_paid_and_unpaid_goes_to_the_waiting_list(): void
+    {
+        $this->travelTo(Carbon::parse('2026-09-30'));
+        $client = $this->client(['business_name' => 'VIP']);
+
+        Livewire::test(SubscriptionsManager::class)
+            ->call('openModal')
+            ->set('client_id', $client->id)
+            ->set('type', 'domain')
+            ->set('domain_name', 'ghsooncompany.com.iq')
+            ->set('currency', 'IQD')
+            ->set('selling_price', 100000)
+            ->set('client_paid', false)
+            ->assertSet('pay_due_date', '2026-10-01')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $sub = Subscription::where('domain_name', 'ghsooncompany.com.iq')->firstOrFail();
+        $this->assertSame('IQD', $sub->currency);
+        $invoice = $sub->invoices()->firstOrFail();
+        $this->assertSame('IQD', $invoice->currency);
+        $this->assertSame(100000.0, (float) $invoice->total);
+        $this->assertSame('2026-10-01', $invoice->due_date->toDateString());
+
+        Livewire::test(SubscriptionsManager::class)->assertSee('100,000 د.ع');
+        Livewire::test(RenewalRadar::class)->assertSee('پارەی چاوەڕوانکراو')->assertSee('100,000 د.ع');
+
+        // Paid (the default) creates no debt.
+        Livewire::test(SubscriptionsManager::class)
+            ->call('openModal')->set('client_id', $client->id)->set('type', 'domain')
+            ->set('domain_name', 'paid.com')->set('selling_price', 20)
+            ->call('save');
+        $this->assertSame(0, Subscription::where('domain_name', 'paid.com')->firstOrFail()->invoices()->count());
+    }
+
     public function test_deep_link_opens_the_sheet_for_a_service_outside_the_radar_window(): void
     {
         $sub = $this->sub($this->client());

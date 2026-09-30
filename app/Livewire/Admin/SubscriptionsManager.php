@@ -40,6 +40,8 @@ class SubscriptionsManager extends Component
     public string $payment_plan = 'upfront';
     public ?float $installment_amount = null;
     public int $payment_day = 1;
+    public bool $client_paid = true;
+    public ?string $pay_due_date = null;
     public ?string $start_date = null;
     public ?string $expiry_date = null;
     public bool $auto_renew = true;
@@ -65,7 +67,7 @@ class SubscriptionsManager extends Component
             'provider' => 'nullable|string|max:255',
             'cost_price' => 'required|numeric|min:0',
             'selling_price' => 'required|numeric|min:0',
-            'currency' => 'required|string|max:10',
+            'currency' => 'required|in:USD,IQD',
             'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,annual,biennial',
             'payment_plan' => 'required|in:upfront,monthly',
             'installment_amount' => 'nullable|required_if:payment_plan,monthly|numeric|min:0',
@@ -281,7 +283,11 @@ class SubscriptionsManager extends Component
                 'description' => 'زانیاری خزمەتگوزاری بە سەرکەوتوویی نوێکرایەوە.',
             ]);
         } else {
-            Subscription::create($validated);
+            $sub = Subscription::create($validated);
+            if (! $this->client_paid && (float) $sub->selling_price > 0) {
+                $due = $this->pay_due_date ? Carbon::parse($this->pay_due_date) : Carbon::today()->addMonthNoOverflow()->startOfMonth();
+                $sub->bill((float) $sub->selling_price, $due, "پارەی {$sub->name}");
+            }
             $this->notification()->send([
                 'icon' => 'success',
                 'title' => 'تۆمارکرا',
@@ -441,6 +447,8 @@ class SubscriptionsManager extends Component
         $this->payment_plan = 'upfront';
         $this->installment_amount = null;
         $this->payment_day = 1;
+        $this->client_paid = true;
+        $this->pay_due_date = Carbon::today()->addMonthNoOverflow()->startOfMonth()->toDateString();
         $this->start_date = Carbon::now()->format('Y-m-d');
         $this->expiry_date = Carbon::now()->addYear()->format('Y-m-d');
         $this->auto_renew = true;

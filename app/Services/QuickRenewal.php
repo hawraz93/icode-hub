@@ -64,6 +64,7 @@ class QuickRenewal
             'registry_expiry' => $registry?->toDateString(),
             'client_id' => $client?->id,
             'client_hint' => $p['client_hint'],
+            'paid' => true,
         ];
     }
 

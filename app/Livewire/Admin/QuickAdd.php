@@ -96,7 +96,10 @@ class QuickAdd extends Component
 
         foreach ($this->drafts as $d) {
             $d['name'] = QuickRenewal::serviceName($d['type'], $d['domain'] ?: $d['name']);
-            $quick->save($d, (int) $d['client_id']);
+            $sub = $quick->save($d, (int) $d['client_id']);
+            if (empty($d['paid']) && (float) $sub->selling_price > 0) {
+                $sub->bill((float) $sub->selling_price, \Carbon\Carbon::today()->addMonthNoOverflow()->startOfMonth(), "پارەی {$sub->name}");
+            }
         }
 
         $count = count($this->drafts);

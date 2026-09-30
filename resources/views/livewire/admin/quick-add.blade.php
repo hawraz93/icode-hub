@@ -109,9 +109,15 @@
                         <p class="text-[11px] text-slate-500">ئەم دۆمەینە لە تۆمارگە نەدۆزرایەوە، بەروارەکە بنووسە.</p>
                     @endif
 
-                    @if($d['provider'])
-                        <p class="text-[11px] text-slate-400">دابینکەر: {{ $d['provider'] }}</p>
-                    @endif
+                    <div class="flex items-center justify-between gap-3">
+                        <label class="inline-flex items-center gap-2 text-[13px] font-semibold cursor-pointer {{ ($d['paid'] ?? true) ? 'text-emerald-700' : 'text-rose-700' }}">
+                            <input type="checkbox" wire:model.live="drafts.{{ $i }}.paid" id="d-{{ $i }}-paid" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                            {{ ($d['paid'] ?? true) ? 'پارەی داوە' : 'پارەی نەداوە · یەکەمی مانگی داهاتوو بیرت دەخاتەوە' }}
+                        </label>
+                        @if($d['provider'])
+                            <span class="text-[11px] text-slate-400">دابینکەر: {{ $d['provider'] }}</span>
+                        @endif
+                    </div>
                 </div>
             @endforeach
         </div>
