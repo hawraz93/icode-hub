@@ -9,6 +9,9 @@ class TelegramNotifier
 {
     private const MAX_LENGTH = 4000;
 
+    /** Telegram's description of the last failed call, e.g. "Unauthorized" or "Bad Request: chat not found". */
+    public ?string $lastError = null;
+
     public function __construct(
         private ?string $token = null,
         private ?string $chatId = null,
@@ -45,6 +48,7 @@ class TelegramNotifier
             ]);
 
             if (! $response->successful()) {
+                $this->lastError = $response->json('description') ?? "HTTP {$response->status()}";
                 Log::warning('Telegram send failed', ['status' => $response->status(), 'body' => $response->body()]);
 
                 return false;
@@ -58,6 +62,8 @@ class TelegramNotifier
      * Chats that have recently messaged the bot, used to discover TELEGRAM_CHAT_ID.
      *
      * @return array<int, array{id: string, name: string}>
+     *
+     * @throws \RuntimeException when Telegram rejects the request (bad token, webhook set, ...)
      */
     public function recentChats(): array
     {
@@ -65,7 +71,11 @@ class TelegramNotifier
             return [];
         }
 
-        $updates = Http::timeout(15)->get($this->endpoint('getUpdates'))->json('result', []);
+        $response = Http::timeout(15)->get($this->endpoint('getUpdates'));
+        if (! $response->json('ok')) {
+            throw new \RuntimeException($response->json('description') ?? "HTTP {$response->status()}", $response->status());
+        }
+        $updates = $response->json('result', []);
 
         return collect($updates)
             ->map(fn ($u) => $u['message']['chat'] ?? $u['my_chat_member']['chat'] ?? null)

@@ -102,6 +102,25 @@ class RenewalsTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_telegram_test_explains_token_and_chat_errors(): void
+    {
+        Http::fake([
+            'api.telegram.org/*/getUpdates' => Http::response(['ok' => false, 'error_code' => 401, 'description' => 'Unauthorized'], 401),
+            'api.telegram.org/*/sendMessage' => Http::response(['ok' => false, 'description' => 'Bad Request: chat not found'], 400),
+        ]);
+
+        config(['services.telegram.bot_token' => 'BAD', 'services.telegram.chat_id' => null]);
+        $this->artisan('telegram:test')
+            ->expectsOutput('Telegram rejected the token: Unauthorized')
+            ->assertFailed();
+
+        config(['services.telegram.bot_token' => 'GOOD', 'services.telegram.chat_id' => '999']);
+
+        $this->artisan('telegram:test')
+            ->expectsOutput('Sending failed: Bad Request: chat not found')
+            ->assertFailed();
+    }
+
     public function test_radar_renders_and_walks_through_the_renewal_steps(): void
     {
         $this->actingAs(User::factory()->create());
