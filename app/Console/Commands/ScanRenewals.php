@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\ActivityReminder;
 use App\Models\Server;
 use App\Models\Subscription;
+use App\Services\RenewalBot;
 use App\Services\TelegramNotifier;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -27,7 +28,7 @@ class ScanRenewals extends Command
     /** Keep nagging this many days after expiry. */
     private const OVERDUE_WINDOW = 30;
 
-    public function handle(TelegramNotifier $telegram): int
+    public function handle(TelegramNotifier $telegram, RenewalBot $bot): int
     {
         $dryRun = (bool) $this->option('dry-run');
 
@@ -49,7 +50,11 @@ class ScanRenewals extends Command
         $message = $this->buildMessage($subscriptions, $servers);
 
         if ($dryRun) {
-            $this->line(strip_tags($message));
+            $this->line(html_entity_decode(strip_tags($message)));
+            foreach ($subscriptions as $sub) {
+                $this->line('');
+                $this->line(html_entity_decode(strip_tags($bot->card($sub)[0])));
+            }
 
             return self::SUCCESS;
         }
@@ -59,6 +64,11 @@ class ScanRenewals extends Command
         }
 
         $sent = $telegram->send($message);
+        if ($sent) {
+            foreach ($subscriptions as $sub) {
+                $bot->sendCard($sub);
+            }
+        }
 
         foreach ($subscriptions as $sub) {
             ActivityReminder::create([
@@ -148,27 +158,16 @@ class ScanRenewals extends Command
 
         $lines = ['🔔 <b>نوێکردنەوەکانی ئەمڕۆ</b> · ' . Carbon::today()->format('Y-m-d'), ''];
 
-        $groups = [
-            '🔴 <b>بەسەرچووە</b>' => $subscriptions->filter(fn ($s) => $s->days_until_expiry < 0),
-            '🟠 <b>ئەم هەفتەیە</b>' => $subscriptions->filter(fn ($s) => $s->days_until_expiry >= 0 && $s->days_until_expiry <= 7),
-            '🟡 <b>نزیکە</b>' => $subscriptions->filter(fn ($s) => $s->days_until_expiry > 7),
-        ];
-
-        foreach ($groups as $title => $items) {
-            if ($items->isEmpty()) {
-                continue;
-            }
-            $lines[] = $title;
-            foreach ($items as $sub) {
-                $client = $sub->client?->business_name ?: $sub->client?->name;
-                $stage = Subscription::STAGE_LABELS[$sub->renewal_stage] ?? '';
-                $lines[] = '• <code>' . $e($sub->domain_name ?: $sub->name) . '</code> · ' . $e($this->typeShort($sub->type));
-                $lines[] = '   ' . $e($client) . ' · ' . $e($sub->expiry_status_text) . ' · ' . $e($sub->selling_label);
-                $lines[] = '   ↳ ' . $e($stage);
-            }
+        $counts = array_filter([
+            '🔴 بەسەرچووە' => $subscriptions->filter(fn ($s) => $s->days_until_expiry < 0)->count(),
+            '🟠 ئەم هەفتەیە' => $subscriptions->filter(fn ($s) => $s->days_until_expiry >= 0 && $s->days_until_expiry <= 7)->count(),
+            '🟡 نزیکە' => $subscriptions->filter(fn ($s) => $s->days_until_expiry > 7)->count(),
+        ]);
+        if ($counts) {
+            $lines[] = collect($counts)->map(fn ($n, $label) => "{$label}: <b>{$n}</b>")->implode(' · ');
+            $lines[] = 'هەر یەکەیان لە خوارەوە بە دوگمەوە دێت 👇';
             $lines[] = '';
         }
-
         if ($servers->isNotEmpty()) {
             $lines[] = '🖥 <b>سێرڤەرەکانی خۆت</b>';
             foreach ($servers as $server) {
@@ -184,19 +183,5 @@ class ScanRenewals extends Command
         $lines[] = '👉 ' . $e(route('admin.renewals'));
 
         return implode("\n", $lines);
-    }
-
-    private function typeShort(string $type): string
-    {
-        return match ($type) {
-            'domain' => 'دۆمەین',
-            'hosting' => 'هۆستینگ',
-            'bundle' => 'دۆمەین + هۆستینگ',
-            'email' => 'ئیمەیڵی بزنس',
-            'vps' => 'VPS',
-            'license' => 'مۆڵەت',
-            'maintenance' => 'پشتگیری',
-            default => 'خزمەتگوزاری',
-        };
     }
 }

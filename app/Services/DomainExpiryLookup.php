@@ -37,7 +37,7 @@ class DomainExpiryLookup
     }
 
     /**
-     * @return array{supported: bool, expiry: ?Carbon}
+     * @return array{supported: bool, expiry: ?Carbon, registrar?: ?string}
      */
     public function lookup(string $domain): array
     {
@@ -61,7 +61,28 @@ class DomainExpiryLookup
         return [
             'supported' => true,
             'expiry' => isset($event['eventDate']) ? Carbon::parse($event['eventDate'])->timezone(config('app.timezone'))->startOfDay() : null,
+            'registrar' => $this->registrarName($response->json('entities', [])),
         ];
+    }
+
+    /**
+     * Pull the registrar's display name out of RDAP's jCard entities.
+     */
+    private function registrarName(array $entities): ?string
+    {
+        foreach ($entities as $entity) {
+            if (! in_array('registrar', $entity['roles'] ?? [], true)) {
+                continue;
+            }
+            foreach ($entity['vcardArray'][1] ?? [] as $field) {
+                if (($field[0] ?? null) === 'fn' && filled($field[3] ?? null)) {
+                    // "NameCheap, Inc." -> "NameCheap"
+                    return trim(preg_replace('/,?\s*(inc|llc|ltd|limited|corp|corporation|gmbh|s\.a\.)\.?$/i', '', $field[3]));
+                }
+            }
+        }
+
+        return null;
     }
 
     private function serverFor(string $tld): ?string

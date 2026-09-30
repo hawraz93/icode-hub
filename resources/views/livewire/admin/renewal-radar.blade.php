@@ -23,6 +23,12 @@
      x-data="{ open: $wire.entangle('selectedId').live }"
      @keydown.escape.window="open = null">
 
+    @if(session('quick_added'))
+        <div class="rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-bold px-4 py-3">
+            ✅ {{ session('quick_added') }} خزمەتگوزاری تۆمارکرا
+        </div>
+    @endif
+
     {{-- 1. Summary: money for the next 30 days + 90-day runway --}}
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-3 sm:gap-4">
 
@@ -75,6 +81,11 @@
     </div>
 
     {{-- 2. Type filter --}}
+    <a href="{{ route('admin.quick-add') }}"
+       class="fixed z-30 left-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] lg:bottom-8 lg:left-8 w-14 h-14 rounded-[20px] bg-indigo-600 hover:bg-indigo-700 text-white grid place-items-center shadow-[0_10px_24px_-6px_rgba(79,70,229,.7)] transition"
+       aria-label="زیادکردنی خێرا" title="زیادکردنی خێرا">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+    </a>
     <div class="flex gap-2 overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 pb-1 [scrollbar-width:none]" role="toolbar" aria-label="جۆری خزمەتگوزاری">
         @foreach(\App\Livewire\Admin\RenewalRadar::FILTERS as $key => $f)
             <button type="button" wire:click="setFilter('{{ $key }}')" aria-pressed="{{ $filter === $key ? 'true' : 'false' }}"

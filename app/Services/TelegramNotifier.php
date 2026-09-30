@@ -59,6 +59,62 @@ class TelegramNotifier
     }
 
     /**
+     * Call any Bot API method. Returns the decoded "result" on success, null on failure.
+     */
+    public function call(string $method, array $params = []): mixed
+    {
+        if (blank($this->token)) {
+            return null;
+        }
+
+        $response = Http::timeout(15)->asJson()->post($this->endpoint($method), $params);
+
+        if (! $response->json('ok')) {
+            $this->lastError = $response->json('description') ?? "HTTP {$response->status()}";
+            Log::warning("Telegram {$method} failed", ['status' => $response->status(), 'body' => $response->body()]);
+
+            return null;
+        }
+
+        return $response->json('result');
+    }
+
+    /**
+     * Send one HTML message with optional inline buttons; returns the message ID.
+     *
+     * @param  array<int, array<int, array<string, string>>>|null  $keyboard  rows of inline buttons
+     */
+    public function sendWithButtons(string $html, ?array $keyboard = null, ?string $chatId = null): ?int
+    {
+        $result = $this->call('sendMessage', array_filter([
+            'chat_id' => $chatId ?? $this->chatId,
+            'text' => $html,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => true,
+            'reply_markup' => $keyboard ? ['inline_keyboard' => $keyboard] : null,
+        ], fn ($v) => $v !== null));
+
+        return $result['message_id'] ?? null;
+    }
+
+    public function editMessage(string|int $chatId, int $messageId, string $html, ?array $keyboard = null): bool
+    {
+        return $this->call('editMessageText', [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $html,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => true,
+            'reply_markup' => ['inline_keyboard' => $keyboard ?? []],
+        ]) !== null;
+    }
+
+    public function answerCallback(string $callbackId, ?string $text = null): void
+    {
+        $this->call('answerCallbackQuery', array_filter(['callback_query_id' => $callbackId, 'text' => $text]));
+    }
+
+    /**
      * Chats that have recently messaged the bot, used to discover TELEGRAM_CHAT_ID.
      *
      * @return array<int, array{id: string, name: string}>
