@@ -13,6 +13,7 @@ class Server extends Model
 
     protected $fillable = [
         'name',
+        'kind',
         'provider',
         'ip_address',
         'location',
@@ -34,6 +35,40 @@ class Server extends Model
         'auto_renew' => 'boolean',
     ];
 
+    /** What you bought for yourself; every kind counts as a company expense. */
+    public const KINDS = [
+        'server' => 'سێرڤەر / VPS',
+        'domain' => 'دۆمەین',
+        'email' => 'ئیمەیڵ',
+        'hosting' => 'هۆستینگ',
+        'software' => 'بەرنامە / سەبسکریپشن',
+        'other' => 'هی تر',
+    ];
+
+    public const CYCLES = [
+        'monthly' => 'مانگ',
+        'quarterly' => '٣ مانگ',
+        'semi_annual' => '٦ مانگ',
+        'annual' => 'ساڵ',
+        'biennial' => '٢ ساڵ',
+    ];
+
+    public function getKindLabelAttribute(): string
+    {
+        return self::KINDS[$this->kind] ?? self::KINDS['other'];
+    }
+
+    /** Cost per year in the item's own currency. */
+    public function getAnnualCostAttribute(): float
+    {
+        return (float) $this->cost * Subscription::perYear($this->billing_cycle);
+    }
+
+    public function getCostLabelAttribute(): string
+    {
+        return \App\Support\Money::format((float) $this->cost, $this->currency) . ' / ' . (self::CYCLES[$this->billing_cycle] ?? 'مانگ');
+    }
+
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);
@@ -54,6 +89,7 @@ class Server extends Model
         $next = Carbon::parse($this->renewal_date);
         do {
             $next = match ($this->billing_cycle) {
+                'biennial' => $next->addYears(2),
                 'annual' => $next->addYear(),
                 'semi_annual' => $next->addMonths(6),
                 'quarterly' => $next->addMonths(3),
@@ -80,21 +116,5 @@ class Server extends Model
             return "ئەمڕۆ کاتی نوێکردنەوەیەتی!";
         }
         return "{$days} ڕۆژ ماوە بۆ نوێکردنەوە";
-    }
-
-    public function getMonthlyRevenueAttribute(): float
-    {
-        // Calculate monthly revenue from hosted subscriptions
-        $rev = 0;
-        foreach ($this->subscriptions()->where('status', 'active')->get() as $sub) {
-            $rev += $sub->monthly_selling_price;
-        }
-        return $rev;
-    }
-
-    public function getProfitMarginAttribute(): float
-    {
-        $cost = $this->billing_cycle === 'annual' ? ($this->cost / 12) : (float) $this->cost;
-        return (float) ($this->monthly_revenue - $cost);
     }
 }

@@ -91,6 +91,18 @@ class Client extends Model
                 || ($c->phone && (new self(['phone' => $c->phone]))->whatsapp_number === $wanted));
     }
 
+    /** @return array<string, float> paid invoice totals per currency */
+    public function getPaidTotalsAttribute(): array
+    {
+        return \App\Support\Money::totals($this->invoices()->where('status', 'paid')->get(), fn ($i) => $i->total, fn ($i) => $i->currency);
+    }
+
+    /** @return array<string, float> outstanding invoice balances per currency */
+    public function getPendingTotalsAttribute(): array
+    {
+        return \App\Support\Money::totals($this->invoices()->whereIn('status', ['sent', 'partial', 'overdue'])->get(), fn ($i) => $i->remaining_balance, fn ($i) => $i->currency);
+    }
+
     public function getTotalPaidAttribute(): float
     {
         return (float) $this->invoices()->where('status', 'paid')->sum('total');

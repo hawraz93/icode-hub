@@ -29,7 +29,7 @@ class ContractsManager extends Component
     public string $contract_number = '';
     public string $title = '';
     public string $terms = '';
-    public float $total_amount = 0.00;
+    public $total_amount = 0.00; // untyped: an emptied number input sends ""
     public string $currency = 'USD';
     public ?string $start_date = null;
     public ?string $end_date = null;

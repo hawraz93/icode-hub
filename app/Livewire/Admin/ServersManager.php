@@ -15,11 +15,12 @@ class ServersManager extends Component
     public ?int $editingId = null;
 
     public string $name = '';
+    public string $kind = 'server';
     public string $provider = 'Hetzner Cloud';
     public string $ip_address = '';
     public string $location = 'Germany';
     public string $specs = '';
-    public float $cost = 0.00;
+    public $cost = 0.00; // untyped: an emptied number input sends ""
     public string $currency = 'USD';
     public string $billing_cycle = 'monthly';
     public ?string $purchase_date = null;
@@ -32,13 +33,14 @@ class ServersManager extends Component
     {
         return [
             'name' => 'required|string|max:255',
+            'kind' => 'required|in:' . implode(',', array_keys(Server::KINDS)),
             'provider' => 'nullable|string|max:255',
             'ip_address' => 'nullable|string|max:255',
             'location' => 'nullable|string|max:255',
             'specs' => 'nullable|string|max:255',
             'cost' => 'required|numeric|min:0',
-            'currency' => 'required|string|max:10',
-            'billing_cycle' => 'required|in:monthly,quarterly,semi_annual,annual',
+            'currency' => 'required|in:USD,IQD',
+            'billing_cycle' => 'required|in:' . implode(',', array_keys(Server::CYCLES)),
             'purchase_date' => 'nullable|date',
             'renewal_date' => 'required|date',
             'status' => 'required|in:active,suspended,terminated',
@@ -58,6 +60,7 @@ class ServersManager extends Component
         $server = Server::findOrFail($id);
         $this->editingId = $server->id;
         $this->name = $server->name;
+        $this->kind = $server->kind ?: 'server';
         $this->provider = $server->provider ?? '';
         $this->ip_address = $server->ip_address ?? '';
         $this->location = $server->location ?? '';
@@ -182,10 +185,11 @@ class ServersManager extends Component
     {
         $this->editingId = null;
         $this->name = '';
-        $this->provider = 'Hetzner Cloud';
+        $this->kind = 'server';
+        $this->provider = '';
         $this->ip_address = '';
-        $this->location = 'Germany';
-        $this->specs = '4 vCPU, 8 GB RAM, 160 GB NVMe';
+        $this->location = '';
+        $this->specs = '';
         $this->cost = 0.00;
         $this->currency = 'USD';
         $this->billing_cycle = 'monthly';
@@ -200,13 +204,14 @@ class ServersManager extends Component
     {
         $servers = Server::with(['subscriptions.client'])->orderBy('renewal_date', 'asc')->get();
 
-        $totalMonthlyCost = $servers->where('status', 'active')->sum(function($s) {
-            return $s->billing_cycle === 'annual' ? ($s->cost / 12) : $s->cost;
-        });
+        $active = $servers->where('status', 'active');
+        $annualTotals = \App\Support\Money::totals($active, fn ($s) => $s->annual_cost, fn ($s) => $s->currency);
+        $monthlyTotals = array_map(fn ($v) => $v / 12, $annualTotals);
 
         return view('livewire.admin.servers-manager', [
             'servers' => $servers,
-            'totalMonthlyCost' => $totalMonthlyCost,
-        ])->layout('layouts.app', ['title' => 'بەڕێوەبردنی سێرڤەر و VPS', 'header' => 'چاودێری سێرڤەر، VPS و خەرجی ژێرخان']);
+            'annualTotals' => $annualTotals,
+            'monthlyTotals' => $monthlyTotals,
+        ])->layout('layouts.app', ['title' => 'خزمەتگوزارییەکانی خۆم', 'header' => 'خزمەتگوزارییەکانی خۆم (خەرجی)']);
     }
 }

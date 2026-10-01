@@ -46,7 +46,7 @@ class RenewalsTest extends TestCase
         $this->assertNull($this->client(['phone' => null])->whatsapp_number);
     }
 
-    public function test_dinar_prices_stay_in_dinars_and_totals_convert_to_dollars(): void
+    public function test_dinar_prices_stay_in_dinars_and_totals_are_kept_per_currency(): void
     {
         config(['app.usd_to_iqd' => 1500]);
         $c = $this->client();
@@ -56,12 +56,13 @@ class RenewalsTest extends TestCase
         $this->assertSame('100,000 د.ع', $iqd->selling_label);
         $this->assertStringContainsString('بڕی نوێکردنەوە: 100,000 د.ع', $iqd->whatsappMessage('ku'));
         $this->assertStringNotContainsString('$', $iqd->whatsappMessage('ku'));
-        $this->assertStringContainsString('بڕی نوێکردنەوە: $100 (≈ 150,000 د.ع)', $usd->whatsappMessage('ku'));
+        $this->assertStringContainsString('بڕی نوێکردنەوە: $100', $usd->whatsappMessage('ku'));
+        $this->assertStringNotContainsString('د.ع', $usd->whatsappMessage('ku'));
 
         $this->actingAs(User::factory()->create());
         $summary = Livewire::test(RenewalRadar::class)->viewData('summary');
-        $this->assertEqualsWithDelta(100 + 100000 / 1500, $summary['collect'], 0.01);
-        $this->assertEqualsWithDelta(12 + 45000 / 1500, $summary['pay'], 0.01);
+        $this->assertSame(['USD' => 100.0, 'IQD' => 100000.0], $summary['collect']);
+        $this->assertSame(['USD' => 12.0, 'IQD' => 45000.0], $summary['pay']);
     }
 
     public function test_long_expired_items_are_reminded_on_mondays_only(): void

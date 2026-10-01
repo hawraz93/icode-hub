@@ -23,7 +23,7 @@ class ExpensesManager extends Component
 
     public string $title = '';
     public string $category = 'software_ai';
-    public float $amount = 0.00;
+    public $amount = 0.00; // untyped: an emptied number input sends ""
     public string $currency = 'USD';
     public string $billing_cycle = 'monthly';
     public ?string $expense_date = null;

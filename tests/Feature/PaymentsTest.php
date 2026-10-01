@@ -7,7 +7,7 @@ use App\Livewire\Admin\Dashboard;
 use App\Livewire\Admin\RenewalRadar;
 use App\Livewire\Admin\SubscriptionsManager;
 use App\Models\Client;
-use App\Models\Invoice;
+use App\Models\Server;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Services\RenewalBot;
@@ -50,86 +50,62 @@ class PaymentsTest extends TestCase
         $this->assertSame('finance.icodegroup.net', $this->sub($this->client(), ['domain_name' => 'https://finance.icodegroup.net/'])->domain_name);
     }
 
-    public function test_pays_at_start_of_next_month_is_recorded_and_can_be_marked_paid(): void
+    public function test_unpaid_flag_puts_a_service_on_the_unpaid_list_until_marked_paid(): void
     {
-        $this->travelTo(Carbon::parse('2026-09-30'));
-        $sub = $this->sub($this->client());
+        $sub = $this->sub($this->client(), ['is_paid' => false]);
 
-        $radar = Livewire::test(RenewalRadar::class)->call('recordDebt', $sub->id, 100);
+        // Shows on the radar even though the hosting itself runs until 2028; no due date involved.
+        $radar = Livewire::test(RenewalRadar::class)->assertSee('پارەیان نەداوە')->assertSee('Fly Com')->assertSee('$100');
 
-        $invoice = Invoice::firstOrFail();
-        $this->assertSame($sub->id, $invoice->subscription_id);
-        $this->assertSame('2026-10-01', $invoice->due_date->toDateString());
-        $this->assertSame(100.0, $sub->fresh()->unpaid_balance_usd);
-
-        // Shows in "money you're waiting for", even though the hosting runs until 2028.
-        $radar->assertSee('پارەی چاوەڕوانکراو')->assertSee('Fly Com');
-
-        $radar->call('markInvoicePaid', $invoice->id);
-        $this->assertSame('paid', $invoice->fresh()->status);
-        $this->assertSame(0.0, $sub->fresh()->unpaid_balance_usd);
+        $radar->call('togglePaid', $sub->id);
+        $this->assertTrue($sub->fresh()->is_paid);
+        $this->assertNotNull($sub->fresh()->paid_at);
+        Livewire::test(RenewalRadar::class)->assertDontSee('پارەیان نەداوە');
     }
 
-    public function test_form_asks_if_client_paid_and_unpaid_goes_to_the_waiting_list(): void
+    public function test_form_has_a_simple_paid_switch_and_a_dinar_option(): void
     {
-        $this->travelTo(Carbon::parse('2026-09-30'));
         $client = $this->client(['business_name' => 'VIP']);
 
         Livewire::test(SubscriptionsManager::class)
             ->call('openModal')
+            ->assertSet('is_paid', true)
             ->set('client_id', $client->id)
             ->set('type', 'domain')
             ->set('domain_name', 'ghsooncompany.com.iq')
             ->set('currency', 'IQD')
             ->set('selling_price', 100000)
-            ->set('client_paid', false)
-            ->assertSet('pay_due_date', '2026-10-01')
+            ->set('is_paid', false)
             ->call('save')
             ->assertHasNoErrors();
 
         $sub = Subscription::where('domain_name', 'ghsooncompany.com.iq')->firstOrFail();
         $this->assertSame('IQD', $sub->currency);
-        $invoice = $sub->invoices()->firstOrFail();
-        $this->assertSame('IQD', $invoice->currency);
-        $this->assertSame(100000.0, (float) $invoice->total);
-        $this->assertSame('2026-10-01', $invoice->due_date->toDateString());
+        $this->assertFalse($sub->is_paid);
+        $this->assertSame(0, $sub->invoices()->count()); // no invoice, no date: just the flag
 
-        Livewire::test(SubscriptionsManager::class)->assertSee('100,000 د.ع');
-        Livewire::test(RenewalRadar::class)->assertSee('پارەی چاوەڕوانکراو')->assertSee('100,000 د.ع');
-
-        // Paid (the default) creates no debt.
         Livewire::test(SubscriptionsManager::class)
-            ->call('openModal')->set('client_id', $client->id)->set('type', 'domain')
-            ->set('domain_name', 'paid.com')->set('selling_price', 20)
-            ->call('save');
-        $this->assertSame(0, Subscription::where('domain_name', 'paid.com')->firstOrFail()->invoices()->count());
+            ->assertSee('100,000 د.ع')
+            ->set('statusFilter', 'unpaid')
+            ->assertSee('ghsooncompany.com.iq');
+
+        // Editing and switching to "paid" clears it.
+        Livewire::test(SubscriptionsManager::class)->call('edit', $sub->id)->set('is_paid', true)->call('save');
+        $this->assertTrue($sub->fresh()->is_paid);
     }
 
-    public function test_deep_link_opens_the_sheet_for_a_service_outside_the_radar_window(): void
+    public function test_renewing_without_recording_payment_marks_the_new_period_unpaid(): void
     {
-        $sub = $this->sub($this->client());
+        $c = $this->client();
+        $unpaidRenewal = $this->sub($c, ['expiry_date' => now()->addDays(3)->toDateString()]);
+        $paidRenewal = $this->sub($c, ['domain_name' => 'paid.com', 'expiry_date' => now()->addDays(3)->toDateString(), 'renewal_stage' => Subscription::STAGE_PAID]);
 
-        Livewire::withQueryParams(['open' => $sub->id])->test(RenewalRadar::class)
-            ->assertSet('selectedId', $sub->id)
-            ->assertSee('+ تۆمارکردنی قەرز');
+        $unpaidRenewal->renew();
+        $paidRenewal->renew();
+
+        $this->assertFalse($unpaidRenewal->fresh()->is_paid);
+        $this->assertTrue($paidRenewal->fresh()->is_paid);
     }
-
-    public function test_monthly_installments_bill_once_per_month_on_the_payment_day(): void
-    {
-        $sub = $this->sub($this->client(), ['payment_plan' => 'monthly', 'installment_amount' => 10, 'payment_day' => 5]);
-
-        $this->assertNull($sub->billMonthlyInstallment(Carbon::parse('2026-10-04')));   // before the day
-        $first = $sub->billMonthlyInstallment(Carbon::parse('2026-10-05'));
-        $this->assertSame('2026-10-05', $first->due_date->toDateString());
-        $this->assertNull($sub->billMonthlyInstallment(Carbon::parse('2026-10-20')));   // already billed
-        $this->assertNotNull($sub->billMonthlyInstallment(Carbon::parse('2026-11-05')));
-        $this->assertNull($sub->billMonthlyInstallment(Carbon::parse('2028-09-05')));   // after expiry
-
-        $this->travelTo(Carbon::parse('2026-12-06'));
-        $this->artisan('renewals:bill-installments')->assertSuccessful();
-        $this->assertSame(3, $sub->invoices()->count());
-    }
-
     public function test_same_phone_number_is_never_saved_as_a_second_client(): void
     {
         $existing = $this->client(['name' => 'د هەندرێن', 'business_name' => 'epochsp', 'phone' => '07725216760']);
@@ -148,34 +124,45 @@ class PaymentsTest extends TestCase
         $this->assertSame(1, Client::count());
     }
 
-    public function test_telegram_sends_due_payment_and_paid_button_settles_it(): void
+    public function test_telegram_paid_button_clears_an_unpaid_client(): void
     {
         Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 5]])]);
-        $sub = $this->sub($this->client());
-        $invoice = $sub->bill(100, Carbon::today(), 'پارەی هۆستینگ');
+        $sub = $this->sub($this->client(), ['is_paid' => false]);
 
+        $this->travelTo(now()->next('Monday'));
         $this->artisan('renewals:scan')->assertSuccessful();
-        Http::assertSent(fn ($r) => str_contains((string) ($r['text'] ?? ''), '💳') && str_contains(json_encode($r['reply_markup'] ?? []), "v:{$invoice->id}"));
+        Http::assertSent(fn ($r) => str_contains(json_encode($r['reply_markup'] ?? []), "u:{$sub->id}"));
 
         $this->postJson('/telegram/webhook', ['callback_query' => [
-            'id' => 'cb', 'data' => "v:{$invoice->id}", 'message' => ['message_id' => 5, 'chat' => ['id' => 42]],
+            'id' => 'cb', 'data' => "u:{$sub->id}", 'message' => ['message_id' => 5, 'chat' => ['id' => 42]],
         ]], ['X-Telegram-Bot-Api-Secret-Token' => RenewalBot::webhookSecret()])->assertOk();
 
-        $this->assertSame('paid', $invoice->fresh()->status);
+        $this->assertTrue($sub->fresh()->is_paid);
     }
 
-    public function test_dashboard_shows_real_cash_received_due_and_overdue(): void
+    public function test_dashboard_keeps_dollars_and_dinars_apart_and_counts_own_services_as_expenses(): void
     {
-        $this->travelTo(Carbon::parse('2026-10-10'));
+        $c = $this->client();
+        $this->sub($c, ['selling_price' => 100, 'billing_cycle' => 'annual']);
+        $this->sub($c, ['domain_name' => 'x.com.iq', 'currency' => 'IQD', 'selling_price' => 100000, 'billing_cycle' => 'annual', 'is_paid' => false]);
+        Server::create(['name' => 'Contabo VPS', 'kind' => 'server', 'cost' => 8, 'currency' => 'USD', 'billing_cycle' => 'monthly', 'renewal_date' => now()->addDays(20)]);
+        Server::create(['name' => 'icodegroup.net', 'kind' => 'domain', 'cost' => 15, 'currency' => 'USD', 'billing_cycle' => 'annual', 'renewal_date' => now()->addMonths(5)]);
+
+        $page = Livewire::test(Dashboard::class);
+
+        $this->assertSame(['USD' => 100.0, 'IQD' => 100000.0], $page->viewData('annualRevenue'));
+        $this->assertSame(['USD' => 111.0], $page->viewData('annualCosts'));            // 8 x 12 + 15
+        $this->assertSame(['USD' => -11.0, 'IQD' => 100000.0], $page->viewData('annualProfit'));
+        $this->assertSame(['IQD' => 100000.0], $page->viewData('unpaidTotals'));
+        $page->assertSee('100,000 د.ع')->assertDontSee('.00');
+    }
+
+    public function test_deep_link_opens_the_sheet_for_a_service_outside_the_radar_window(): void
+    {
         $sub = $this->sub($this->client());
-        $sub->bill(100, Carbon::parse('2026-10-01'), 'a')->markPaid();   // received this month
-        $sub->bill(40, Carbon::parse('2026-10-20'), 'b');                // due later this month
-        $sub->bill(25, Carbon::parse('2026-09-15'), 'c');                // overdue
 
-        $cash = Livewire::test(Dashboard::class)->viewData('cash');
-
-        $this->assertEqualsWithDelta(100, $cash['received'], 0.01);
-        $this->assertEqualsWithDelta(40, $cash['due'], 0.01);
-        $this->assertEqualsWithDelta(25, $cash['overdue'], 0.01);
+        Livewire::withQueryParams(['open' => $sub->id])->test(RenewalRadar::class)
+            ->assertSet('selectedId', $sub->id)
+            ->assertSee('✓ پارەی داوە');
     }
 }

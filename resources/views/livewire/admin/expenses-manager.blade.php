@@ -8,7 +8,7 @@
             <div class="space-y-1">
                 <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">خەرجییەکان (دۆلار USD)</span>
                 <div class="text-xl md:text-2xl font-black text-slate-900 font-mono" dir="ltr">
-                    ${{ number_format($totalUsd, 2) }}
+                    {{ \App\Support\Money::format((float) $totalUsd, 'USD') }}
                 </div>
             </div>
             <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg md:text-xl font-bold">
@@ -21,7 +21,7 @@
             <div class="space-y-1">
                 <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">خەرجییەکان (دینار IQD)</span>
                 <div class="text-xl md:text-2xl font-black text-slate-900 font-mono" dir="ltr">
-                    {{ number_format($totalIqd) }} <span class="text-xs font-bold text-slate-500">د.ع</span>
+                    {{ \App\Support\Money::format((float) $totalIqd, 'IQD') }}
                 </div>
             </div>
             <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg md:text-xl font-bold">
@@ -98,7 +98,7 @@
                     </div>
 
                     <div class="text-left font-mono font-black text-base text-slate-900" dir="ltr">
-                        {{ $exp->currency === 'USD' ? '$' : '' }}{{ number_format($exp->amount, $exp->currency === 'USD' ? 2 : 0) }} {{ $exp->currency === 'IQD' ? 'د.ع' : '' }}
+                        {{ \App\Support\Money::format((float) $exp->amount, $exp->currency) }}
                     </div>
                 </div>
 
@@ -158,7 +158,7 @@
 
                             <td class="p-4">
                                 <span class="font-black text-base font-mono text-slate-900" dir="ltr">
-                                    {{ $exp->currency === 'USD' ? '$' : '' }}{{ number_format($exp->amount, $exp->currency === 'USD' ? 2 : 0) }} {{ $exp->currency === 'IQD' ? 'د.ع' : '' }}
+                                    {{ \App\Support\Money::format((float) $exp->amount, $exp->currency) }}
                                 </span>
                             </td>
 
@@ -240,14 +240,11 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <x-currency
+                    <x-input type="number" step="any" min="0" inputmode="decimal"
                         label="بڕی پارە *"
-                        placeholder="20.00"
+                        placeholder="20"
                         wire:model="amount"
-                        thousands=","
-                        decimal="."
-                        precision="2"
-                    />
+ />
                 </div>
 
                 <div>

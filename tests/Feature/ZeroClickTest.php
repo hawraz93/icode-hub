@@ -205,7 +205,7 @@ class ZeroClickTest extends TestCase
 
     // ----------------------------------------------------------- monthly
 
-    public function test_monthly_summary_totals_this_month_in_dollars(): void
+    public function test_monthly_summary_totals_this_month_per_currency(): void
     {
         $this->travelTo(now()->startOfMonth()->addDays(2));
         $c = $this->client();
@@ -215,7 +215,6 @@ class ZeroClickTest extends TestCase
         $this->assertSame(0, Artisan::call('renewals:monthly', ['--dry-run' => true]));
         $output = Artisan::output();
         $this->assertStringContainsString('نوێکردنەوەکانی ئەم مانگە: 2', $output);
-        $this->assertStringContainsString('وەرگرتن: $200', $output); // $100 + 150,000 IQD at 1,500
-        $this->assertStringContainsString('150,000 د.ع', $output);
+        $this->assertStringContainsString('وەرگرتن: $100 · 150,000 د.ع', $output); // never converted or added
     }
 }

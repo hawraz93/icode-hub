@@ -58,11 +58,11 @@
                     </div>
                     <div>
                         <span class="text-slate-400 text-[11px] block">کۆی گشتی:</span>
-                        <span class="font-mono font-black text-slate-900 text-sm" dir="ltr">${{ number_format($invoice->total, 2) }}</span>
+                        <span class="font-mono font-black text-slate-900 text-sm" dir="ltr">{{ \App\Support\Money::format((float) $invoice->total, $invoice->currency) }}</span>
                     </div>
                     <div>
                         <span class="text-slate-400 text-[11px] block">بڕی دراو:</span>
-                        <span class="font-mono font-bold text-emerald-600 text-sm" dir="ltr">${{ number_format($invoice->paid_amount, 2) }}</span>
+                        <span class="font-mono font-bold text-emerald-600 text-sm" dir="ltr">{{ \App\Support\Money::format((float) $invoice->paid_amount, $invoice->currency) }}</span>
                     </div>
                 </div>
 
@@ -144,11 +144,11 @@
                             </td>
 
                             <td class="p-4 font-mono font-black text-slate-900 text-sm" dir="ltr">
-                                ${{ number_format($invoice->total, 2) }}
+                                {{ \App\Support\Money::format((float) $invoice->total, $invoice->currency) }}
                             </td>
 
                             <td class="p-4 font-mono font-bold text-emerald-600" dir="ltr">
-                                ${{ number_format($invoice->paid_amount, 2) }}
+                                {{ \App\Support\Money::format((float) $invoice->paid_amount, $invoice->currency) }}
                             </td>
 
                             <td class="p-4">
@@ -300,15 +300,12 @@
                             </div>
 
                             <div class="md:col-span-3">
-                                <x-currency
+                                <x-input type="number" step="any" min="0" inputmode="decimal"
                                     label="نرخی تاک ($)"
-                                    placeholder="0.00"
+                                    placeholder="0"
                                     prefix="$"
                                     wire:model="items.{{ $index }}.unit_price"
-                                    thousands=","
-                                    decimal="."
-                                    precision="2"
-                                />
+ />
                             </div>
 
                             <div class="md:col-span-1 flex justify-center pt-6">
@@ -326,27 +323,21 @@
             <!-- Financial Totals & Discounts -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                    <x-currency
+                    <x-input type="number" step="any" min="0" inputmode="decimal"
                         label="داشکاندن (Discount)"
-                        placeholder="0.00"
+                        placeholder="0"
                         prefix="$"
                         wire:model="discount"
-                        thousands=","
-                        decimal="."
-                        precision="2"
-                    />
+ />
                 </div>
 
                 <div>
-                    <x-currency
+                    <x-input type="number" step="any" min="0" inputmode="decimal"
                         label="بڕی دراو (Paid Amount)"
-                        placeholder="0.00"
+                        placeholder="0"
                         prefix="$"
                         wire:model="paid_amount"
-                        thousands=","
-                        decimal="."
-                        precision="2"
-                    />
+ />
                 </div>
 
                 <div>
@@ -426,8 +417,8 @@
                                     <td class="p-3 font-mono text-slate-400">{{ $idx + 1 }}</td>
                                     <td class="p-3 font-semibold text-slate-900">{{ $item->description }}</td>
                                     <td class="p-3 text-center font-mono font-bold">{{ $item->quantity }}</td>
-                                    <td class="p-3 text-end font-mono" dir="ltr">${{ number_format($item->unit_price, 2) }}</td>
-                                    <td class="p-3 text-end font-mono font-extrabold text-slate-900" dir="ltr">${{ number_format($item->total_price, 2) }}</td>
+                                    <td class="p-3 text-end font-mono" dir="ltr">{{ \App\Support\Money::format((float) $item->unit_price, $viewingInvoice->currency) }}</td>
+                                    <td class="p-3 text-end font-mono font-extrabold text-slate-900" dir="ltr">{{ \App\Support\Money::format((float) $item->total_price, $viewingInvoice->currency) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -447,30 +438,30 @@
                     <div class="w-full sm:w-64 space-y-2 text-xs">
                         <div class="flex justify-between text-slate-600">
                             <span>کۆی سەرەتایی (Subtotal):</span>
-                            <span class="font-mono font-bold" dir="ltr">${{ number_format($viewingInvoice->subtotal, 2) }}</span>
+                            <span class="font-mono font-bold" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->subtotal, $viewingInvoice->currency) }}</span>
                         </div>
 
                         @if($viewingInvoice->discount > 0)
                             <div class="flex justify-between text-rose-600">
                                 <span>داشکاندن (Discount):</span>
-                                <span class="font-mono font-bold" dir="ltr">-${{ number_format($viewingInvoice->discount, 2) }}</span>
+                                <span class="font-mono font-bold" dir="ltr">{{ \App\Support\Money::format(-(float) $viewingInvoice->discount, $viewingInvoice->currency) }}</span>
                             </div>
                         @endif
 
                         <div class="flex justify-between pt-2 border-t border-slate-200 text-sm font-black text-slate-900">
                             <span>کۆی گشتی (Total):</span>
-                            <span class="font-mono font-black text-indigo-600" dir="ltr">${{ number_format($viewingInvoice->total, 2) }}</span>
+                            <span class="font-mono font-black text-indigo-600" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->total, $viewingInvoice->currency) }}</span>
                         </div>
 
                         <div class="flex justify-between text-emerald-600 font-bold pt-1">
                             <span>بڕی دراو (Paid):</span>
-                            <span class="font-mono" dir="ltr">${{ number_format($viewingInvoice->paid_amount, 2) }}</span>
+                            <span class="font-mono" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->paid_amount, $viewingInvoice->currency) }}</span>
                         </div>
 
                         @if($viewingInvoice->remaining_balance > 0)
                             <div class="flex justify-between text-amber-700 font-extrabold pt-1">
                                 <span>ماوە بۆ دان (Balance):</span>
-                                <span class="font-mono" dir="ltr">${{ number_format($viewingInvoice->remaining_balance, 2) }}</span>
+                                <span class="font-mono" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->remaining_balance, $viewingInvoice->currency) }}</span>
                             </div>
                         @endif
                     </div>

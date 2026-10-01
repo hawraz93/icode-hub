@@ -101,7 +101,7 @@
                 <a href="{{ route('admin.servers') }}" 
                    class="flex items-center gap-3 px-3.5 py-2.5 text-sm font-semibold rounded-xl transition-colors {{ request()->routeIs('admin.servers') ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900' }}">
                     <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path></svg>
-                    <span>سێرڤەر و VPS (خەرجی)</span>
+                    <span>خزمەتگوزارییەکانی خۆم (خەرجی)</span>
                 </a>
 
                 <a href="{{ route('admin.expenses') }}" 
@@ -291,7 +291,7 @@
                                                     </span>
                                                 </div>
                                                 <h4 class="font-bold text-slate-900 text-xs">{{ $srv->name }}</h4>
-                                                <p class="text-slate-500 text-[11px] font-mono" dir="ltr">${{ number_format($srv->cost, 2) }} - {{ $srv->provider }}</p>
+                                                <p class="text-slate-500 text-[11px] font-mono" dir="ltr">{{ $srv->cost_label }} · {{ $srv->kind_label }}</p>
                                             </div>
                                             <a href="{{ route('admin.servers') }}" class="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[11px] font-bold transition">
                                                 نوێکردنەوە
@@ -305,7 +305,7 @@
                                             <div class="space-y-1 flex-1">
                                                 <div class="flex items-center gap-2">
                                                     <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">وەسڵی دواکەوتوو</span>
-                                                    <span class="font-mono text-[11px] font-extrabold text-amber-700" dir="ltr">${{ number_format($inv->remaining_balance, 2) }}</span>
+                                                    <span class="font-mono text-[11px] font-extrabold text-amber-700" dir="ltr">{{ \App\Support\Money::format((float) $inv->remaining_balance, $inv->currency) }}</span>
                                                 </div>
                                                 <h4 class="font-bold text-slate-900 text-xs font-mono" dir="ltr">{{ $inv->invoice_number }}</h4>
                                                 <p class="text-slate-500 text-[11px]">کڕیار: {{ $inv->client->business_name ?? $inv->client->name }}</p>
