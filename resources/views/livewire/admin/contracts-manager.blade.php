@@ -40,7 +40,7 @@
                     </div>
                     <div>
                         <span class="text-slate-400 text-[11px] block">بڕی گرێبەست:</span>
-                        <span class="font-mono font-black text-slate-900 text-sm" dir="ltr">${{ number_format($contract->total_amount, 2) }}</span>
+                        <span class="font-mono font-black text-slate-900 text-sm" dir="ltr">{{ \App\Support\Money::format((float) $contract->total_amount, $contract->currency) }}</span>
                     </div>
                 </div>
 
@@ -106,7 +106,7 @@
                             </td>
 
                             <td class="p-4 font-mono font-black text-slate-900 text-sm" dir="ltr">
-                                ${{ number_format($contract->total_amount, 2) }}
+                                {{ \App\Support\Money::format((float) $contract->total_amount, $contract->currency) }}
                             </td>
 
                             <td class="p-4">
@@ -187,15 +187,12 @@
             </div>
 
             <div>
-                <x-currency
+                <x-input type="number" step="any" min="0" inputmode="decimal"
                     label="کۆی گوژمەی عەقد *"
-                    placeholder="0.00"
+                    placeholder="0"
                     prefix="$"
                     wire:model="total_amount"
-                    thousands=","
-                    decimal="."
-                    precision="2"
-                />
+ />
             </div>
 
             <div>
@@ -292,7 +289,7 @@
                     </div>
                     <div class="text-end">
                         <span class="text-slate-500">کۆی گوژمەی عەقد:</span>
-                        <div class="text-lg font-black font-mono text-indigo-700" dir="ltr">${{ number_format($viewingContract->total_amount, 2) }}</div>
+                        <div class="text-lg font-black font-mono text-indigo-700" dir="ltr">{{ \App\Support\Money::format((float) $viewingContract->total_amount, $viewingContract->currency) }}</div>
                     </div>
                 </div>
 

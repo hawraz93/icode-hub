@@ -34,9 +34,9 @@ class InvoicesManager extends Component
     public string $invoice_number = '';
     public ?string $issue_date = null;
     public ?string $due_date = null;
-    public float $discount = 0.00;
-    public float $tax = 0.00;
-    public float $paid_amount = 0.00;
+    public $discount = 0.00; // untyped: an emptied number input sends ""
+    public $tax = 0.00; // untyped: an emptied number input sends ""
+    public $paid_amount = 0.00; // untyped: an emptied number input sends ""
     public string $currency = 'USD';
     public string $status = 'draft';
     public string $payment_method = 'FIB / FastPay / کاش';

@@ -1,60 +1,32 @@
 <div class="space-y-6">
     
-    <!-- 1. Live Financial Stats & Breakdown Bar -->
+    <!-- 1. Totals per currency (dollars and dinars shown separately) -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        
-        <!-- Total Hosting Revenue -->
         <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-1">
-            <div class="flex items-center justify-between text-xs font-bold text-slate-500">
-                <span>🌐 داهاتی هۆستینگ و وێبسایت</span>
-                <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
-            </div>
-            <div class="text-xl sm:text-2xl font-black font-mono text-slate-900" dir="ltr">
-                ${{ number_format($totalHostingRevenue, 2) }}
-            </div>
-            <p class="text-[10px] text-slate-400 font-medium">وێبسایت و سیستەمەکانی کڕیاران</p>
+            <div class="text-xs font-bold text-slate-500">🌐 هۆستینگ و سێرڤەر</div>
+            <x-money-lines :totals="$totalHostingRevenue" class="text-lg sm:text-xl font-black text-slate-900" />
+            <p class="text-[10px] text-slate-400 font-medium">نرخی فرۆشتنی چالاکەکان</p>
         </div>
 
-        <!-- Total Domain & Email Revenue -->
         <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-1">
-            <div class="flex items-center justify-between text-xs font-bold text-slate-500">
-                <span>🔗 دۆمەین و ئیمەیڵ</span>
-                <span class="w-2 h-2 rounded-full bg-purple-500"></span>
-            </div>
-            <div class="text-xl sm:text-2xl font-black font-mono text-slate-900" dir="ltr">
-                ${{ number_format($totalDomainRevenue + $totalEmailRevenue, 2) }}
-            </div>
-            <p class="text-[10px] text-slate-400 font-medium">کڕین و نوێکردنەوەی دۆمەین و ئیمەیڵ</p>
+            <div class="text-xs font-bold text-slate-500">🔗 دۆمەین و ئیمەیڵ</div>
+            <x-money-lines :totals="$totalDomainEmailRevenue" class="text-lg sm:text-xl font-black text-slate-900" />
+            <p class="text-[10px] text-slate-400 font-medium">نرخی فرۆشتنی چالاکەکان</p>
         </div>
 
-        <!-- Filtered Year / Category Sales -->
-        <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-1">
-            <div class="flex items-center justify-between text-xs font-bold text-slate-500">
-                <span>📅 کۆی پارەی هەڵبژێردراو</span>
-                <span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-slate-100 text-slate-700">
-                    {{ $yearFilter === 'all' ? 'هەمووی' : $yearFilter }}
-                </span>
-            </div>
-            <div class="text-xl sm:text-2xl font-black font-mono text-indigo-600" dir="ltr">
-                ${{ number_format($filteredRevenue, 2) }}
-            </div>
-            <p class="text-[10px] text-slate-400 font-medium">کۆی ئەو پارەیەی بۆ ئەم فلتەرە دێت</p>
-        </div>
-
-        <!-- Net Profit of Services -->
         <div class="bg-emerald-50/70 rounded-2xl p-4 border border-emerald-200/70 shadow-xs space-y-1">
-            <div class="flex items-center justify-between text-xs font-bold text-emerald-800">
-                <span>🟢 قازانجی ئەم خزمەتگوزارییانە</span>
-                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            </div>
-            <div class="text-xl sm:text-2xl font-black font-mono text-emerald-700" dir="ltr">
-                +${{ number_format($filteredProfit, 2) }}
-            </div>
-            <p class="text-[10px] text-emerald-600 font-medium">دوای بڕینی تێچووی دۆمەینەکان</p>
+            <div class="text-xs font-bold text-emerald-800">🟢 قازانج <span class="font-normal">({{ $yearFilter === 'all' ? 'هەمووی' : $yearFilter }})</span></div>
+            <x-money-lines :totals="$filteredProfit" sign="+" class="text-lg sm:text-xl font-black text-emerald-700" />
+            <p class="text-[10px] text-emerald-600 font-medium">فرۆشتن - تێچووی خۆت</p>
         </div>
 
+        <button type="button" wire:click="$set('statusFilter', '{{ $statusFilter === 'unpaid' ? 'all' : 'unpaid' }}')"
+                class="text-start rounded-2xl p-4 border shadow-xs space-y-1 cursor-pointer transition {{ $unpaidCount ? 'bg-rose-50 border-rose-200 hover:border-rose-300' : 'bg-white border-slate-200/80' }} {{ $statusFilter === 'unpaid' ? 'ring-2 ring-rose-300' : '' }}">
+            <div class="text-xs font-bold {{ $unpaidCount ? 'text-rose-700' : 'text-slate-500' }}">🔴 پارەی نەداوە · {{ $unpaidCount }}</div>
+            <x-money-lines :totals="$unpaidTotals" class="text-lg sm:text-xl font-black {{ $unpaidCount ? 'text-rose-600' : 'text-slate-400' }}" />
+            <p class="text-[10px] {{ $unpaidCount ? 'text-rose-600' : 'text-slate-400' }} font-medium">{{ $statusFilter === 'unpaid' ? 'دەست لێبدە بۆ پیشاندانی هەمووی' : 'دەست لێبدە بۆ بینینیان' }}</p>
+        </button>
     </div>
-
     <!-- 2. Search, Year Filter & Action Bar (Mobile Responsive) -->
     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:flex items-center gap-2.5 w-full lg:w-auto flex-1">
@@ -94,6 +66,7 @@
                     <option value="all">هەموو دۆخەکان</option>
                     <option value="active">چالاک (Active)</option>
                     <option value="expired">بەسەرچوو (Expired)</option>
+                    <option value="unpaid">🔴 پارەی نەداوە</option>
                 </select>
             </div>
 
@@ -182,19 +155,11 @@
                     </div>
                 </div>
 
-                @php $owed = $sub->unpaid_balance_usd; @endphp
-                @if($owed > 0 || $sub->payment_plan === 'monthly')
-                    <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2 text-[11px] {{ $owed > 0 ? 'bg-rose-50 text-rose-800' : 'bg-indigo-50 text-indigo-800' }}">
-                        <span>
-                            @if($owed > 0)
-                                قەرز: <b class="font-mono" dir="ltr">${{ number_format($owed, 0) }}</b> · کاتی دان {{ $sub->next_due_invoice?->due_date->format('Y-m-d') }}
-                            @else
-                                مانگانە {{ \App\Models\Subscription::formatAmount((float) $sub->installment_amount, $sub->currency) }} · ڕۆژی {{ $sub->payment_day }}
-                            @endif
-                        </span>
-                    </div>
-                @endif
-
+                <button type="button" wire:click="togglePaid({{ $sub->id }})" wire:loading.attr="disabled" wire:target="togglePaid({{ $sub->id }})"
+                        class="mt-3 w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-bold cursor-pointer transition {{ $sub->is_paid ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 hover:bg-rose-100' }}">
+                    <span>{{ $sub->is_paid ? '✓ پارەی داوە' : '✗ پارەی نەداوە' }}</span>
+                    <span class="font-normal opacity-75">{{ $sub->is_paid ? 'گۆڕین بۆ نەداوە' : 'دەست لێبدە کاتێک دای' }}</span>
+                </button>
                 <!-- Card Actions -->
                 <div class="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                     <div class="flex items-center gap-1.5">
@@ -362,27 +327,21 @@
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <x-currency
+                        <x-input type="number" step="any" min="0" inputmode="decimal"
                             label="کۆی تێچووی سەر خۆت (تۆ چەند دەدەیت) *"
-                            placeholder="{{ $currency === 'IQD' ? '25,000' : '20.00' }}"
+                            placeholder="{{ $currency === 'IQD' ? '25,000' : '20' }}"
                             prefix="{{ $currency === 'IQD' ? 'د.ع' : '$' }}"
                             wire:model.live="cost_price"
-                            thousands=","
-                            decimal="."
-                            precision="{{ $currency === 'IQD' ? 0 : 2 }}"
-                        />
+ />
                     </div>
 
                     <div>
-                        <x-currency
+                        <x-input type="number" step="any" min="0" inputmode="decimal"
                             label="کۆی نرخی فرۆشتن بە کڕیار *"
-                            placeholder="{{ $currency === 'IQD' ? '100,000' : '130.00' }}"
+                            placeholder="{{ $currency === 'IQD' ? '100,000' : '130' }}"
                             prefix="{{ $currency === 'IQD' ? 'د.ع' : '$' }}"
                             wire:model.live="selling_price"
-                            thousands=","
-                            decimal="."
-                            precision="{{ $currency === 'IQD' ? 0 : 2 }}"
-                        />
+ />
                     </div>
                 </div>
 
@@ -391,10 +350,10 @@
                     <div class="flex items-center gap-2">
                         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                         <span class="text-xs font-extrabold text-emerald-900">قازانجی خاوێنی تۆ:</span>
-                        <span class="text-[11px] text-emerald-700 font-mono" dir="ltr">(${{ number_format((float)$selling_price, 2) }} فرۆشتن - ${{ number_format((float)$cost_price, 2) }} تێچوو)</span>
+                        <span class="text-[11px] text-emerald-700 font-mono" dir="ltr">({{ \App\Support\Money::format((float) $selling_price, $currency) }} فرۆشتن - {{ \App\Support\Money::format((float) $cost_price, $currency) }} تێچوو)</span>
                     </div>
                     <span class="text-sm font-black text-emerald-700 font-mono" dir="ltr">
-                        +${{ number_format(max(0, (float)$selling_price - (float)$cost_price), 2) }}
+                        +{{ \App\Support\Money::format(max(0, (float) $selling_price - (float) $cost_price), $currency) }}
                     </span>
                 </div>
             </div>
@@ -417,34 +376,19 @@
                     />
                 </div>
 
-                <div class="md:col-span-2 rounded-2xl bg-indigo-50/60 border border-indigo-100 p-3 space-y-3">
-                    @if(! $editingId)
-                        <div class="flex items-center justify-between gap-3">
-                            <span class="text-sm font-bold text-slate-800">کڕیار پارەی داوە؟</span>
-                            <div class="inline-flex bg-white p-1 rounded-xl border border-indigo-100" role="radiogroup" aria-label="کڕیار پارەی داوە؟">
-                                <button type="button" wire:click="$set('client_paid', true)" role="radio" aria-checked="{{ $client_paid ? 'true' : 'false' }}"
-                                        class="px-4 py-1.5 text-sm rounded-lg font-bold cursor-pointer {{ $client_paid ? 'bg-emerald-600 text-white' : 'text-slate-500' }}">بەڵێ</button>
-                                <button type="button" wire:click="$set('client_paid', false)" role="radio" aria-checked="{{ $client_paid ? 'false' : 'true' }}"
-                                        class="px-4 py-1.5 text-sm rounded-lg font-bold cursor-pointer {{ $client_paid ? 'text-slate-500' : 'bg-rose-600 text-white' }}">نەخێر</button>
-                            </div>
-                        </div>
-                        @if(! $client_paid)
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-                                <x-input label="کەی دەیدات؟" type="date" wire:model="pay_due_date" />
-                                <p class="text-[11px] text-rose-700 pb-2">دەچێتە لیستی «پارەی چاوەڕوانکراو» و لەو ڕۆژەدا لە تێلێگرام ئاگادارت دەکاتەوە.</p>
-                            </div>
-                        @endif
-                    @else
-                        @php $editing = \App\Models\Subscription::with('openInvoices')->find($editingId); @endphp
-                        <div class="flex items-center justify-between gap-3 text-sm">
-                            @if($editing && $editing->unpaid_balance_usd > 0)
-                                <span class="text-rose-700 font-bold">قەرز: {{ \App\Models\Subscription::formatAmount($editing->next_due_invoice->remaining_balance, $editing->next_due_invoice->currency) }} · کاتی دان {{ $editing->next_due_invoice->due_date->format('Y-m-d') }}</span>
-                            @else
-                                <span class="text-emerald-700 font-bold">هیچ قەرزێکی لەسەر نییە</span>
-                            @endif
-                            <a href="{{ route('admin.renewals', ['open' => $editingId]) }}" class="text-xs font-bold text-indigo-600 hover:underline">پارەدان ←</a>
-                        </div>
-                    @endif
+                <div class="md:col-span-2 flex items-center justify-between gap-3 rounded-2xl border p-3 {{ $is_paid ? 'bg-emerald-50/60 border-emerald-100' : 'bg-rose-50/70 border-rose-200' }}">
+                    <div>
+                        <div class="text-sm font-bold text-slate-800">کڕیار پارەی داوە؟</div>
+                        @unless($is_paid)
+                            <p class="text-[11px] text-rose-700 mt-0.5">دەچێتە لیستی «پارەی نەداوە» تا دیاری دەکەیت کە دای.</p>
+                        @endunless
+                    </div>
+                    <div class="inline-flex bg-white p-1 rounded-xl border border-slate-200 flex-shrink-0" role="radiogroup" aria-label="کڕیار پارەی داوە؟">
+                        <button type="button" wire:click="$set('is_paid', true)" role="radio" aria-checked="{{ $is_paid ? 'true' : 'false' }}"
+                                class="px-4 py-1.5 text-sm rounded-lg font-bold cursor-pointer {{ $is_paid ? 'bg-emerald-600 text-white' : 'text-slate-500' }}">بەڵێ</button>
+                        <button type="button" wire:click="$set('is_paid', false)" role="radio" aria-checked="{{ $is_paid ? 'false' : 'true' }}"
+                                class="px-4 py-1.5 text-sm rounded-lg font-bold cursor-pointer {{ $is_paid ? 'text-slate-500' : 'bg-rose-600 text-white' }}">نەخێر</button>
+                    </div>
                 </div>
                 <div>
                     <x-native-select

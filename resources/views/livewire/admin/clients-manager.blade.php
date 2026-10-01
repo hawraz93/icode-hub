@@ -46,8 +46,8 @@
                     </div>
                     <div>
                         <span class="text-slate-400 text-[11px] block">باڵانس:</span>
-                        <span class="font-mono font-extrabold {{ $client->pending_amount > 0 ? 'text-amber-600' : 'text-emerald-600' }}" dir="ltr">
-                            ${{ number_format($client->total_paid, 2) }}
+                        <span class="font-mono font-extrabold {{ $client->pending_totals ? 'text-amber-600' : 'text-emerald-600' }}" dir="ltr">
+                            {{ \App\Support\Money::formatTotals($client->paid_totals) }}
                         </span>
                     </div>
                 </div>
@@ -136,12 +136,12 @@
                             <td class="p-4">
                                 <div>
                                     <span class="text-slate-400 text-[10px]">دراوە: </span>
-                                    <span class="font-mono font-bold text-emerald-600" dir="ltr">${{ number_format($client->total_paid, 2) }}</span>
+                                    <span class="font-mono font-bold text-emerald-600" dir="ltr">{{ \App\Support\Money::formatTotals($client->paid_totals) }}</span>
                                 </div>
-                                @if($client->pending_amount > 0)
+                                @if($client->pending_totals)
                                     <div>
                                         <span class="text-slate-400 text-[10px]">ماوە: </span>
-                                        <span class="font-mono font-extrabold text-amber-600" dir="ltr">${{ number_format($client->pending_amount, 2) }}</span>
+                                        <span class="font-mono font-extrabold text-amber-600" dir="ltr">{{ \App\Support\Money::formatTotals($client->pending_totals) }}</span>
                                     </div>
                                 @endif
                             </td>

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Support\Money;
 use Carbon\Carbon;
 
 class Subscription extends Model
@@ -24,15 +25,14 @@ class Subscription extends Model
         'selling_price',
         'currency',
         'billing_cycle',
-        'payment_plan',
-        'installment_amount',
-        'payment_day',
         'start_date',
         'expiry_date',
         'registry_expiry_date',
         'registry_checked_at',
         'auto_renew',
         'status',
+        'is_paid',
+        'paid_at',
         'renewal_stage',
         'stage_updated_at',
         'reminder_days_before',
@@ -52,8 +52,8 @@ class Subscription extends Model
         'registry_expiry_date' => 'date',
         'registry_checked_at' => 'datetime',
         'renewal_stage' => 'integer',
-        'installment_amount' => 'decimal:2',
-        'payment_day' => 'integer',
+        'is_paid' => 'boolean',
+        'paid_at' => 'datetime',
     ];
 
     public const STAGE_NONE = 0;
@@ -102,9 +102,13 @@ class Subscription extends Model
             $newExpiry = $this->renewalCycleEnd(Carbon::now());
         }
 
+        $paid = $this->renewal_stage >= self::STAGE_PAID;
+
         $this->update([
             'expiry_date' => $newExpiry->format('Y-m-d'),
             'status' => 'active',
+            'is_paid' => $paid,
+            'paid_at' => $paid ? now() : null,
             'renewal_stage' => self::STAGE_NONE,
             'stage_updated_at' => now(),
             'last_reminded_at' => null,
@@ -128,26 +132,36 @@ class Subscription extends Model
         return $this->hasMany(Invoice::class);
     }
 
-    /** Invoices the client still owes money on. */
-    public function openInvoices(): HasMany
+    /** Services whose client has not paid for the current period. */
+    public function scopeUnpaid(Builder $query): Builder
     {
-        return $this->invoices()
-            ->whereIn('status', ['sent', 'partial', 'overdue'])
-            ->whereColumn('paid_amount', '<', 'total')
-            ->orderBy('due_date');
+        return $query->where('is_paid', false)->where('status', '!=', 'cancelled');
     }
 
-    /** Outstanding amount in USD across all open invoices of this service. */
-    public function getUnpaidBalanceUsdAttribute(): float
+    public function markPaid(): void
     {
-        return (float) $this->openInvoices->sum(fn (Invoice $i) => self::toUsd($i->remaining_balance, $i->currency));
+        $this->update(['is_paid' => true, 'paid_at' => now()]);
+        $this->logPayment('payment_received', 'پارە وەرگیرا: ' . $this->selling_label);
     }
 
-    public function getNextDueInvoiceAttribute(): ?Invoice
+    public function markUnpaid(): void
     {
-        return $this->openInvoices->first();
+        $this->update(['is_paid' => false, 'paid_at' => null]);
+        $this->logPayment('payment_pending', 'وەک «پارەی نەداوە» دیاریکرا');
     }
 
+    private function logPayment(string $type, string $message): void
+    {
+        ActivityReminder::create([
+            'client_id' => $this->client_id,
+            'subscription_id' => $this->id,
+            'type' => $type,
+            'channel' => 'system',
+            'message' => $message,
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+    }
     /**
      * Record money the client owes for this service (a debt with a due date), as an invoice.
      */
@@ -194,34 +208,6 @@ class Subscription extends Model
     }
 
     /**
-     * For monthly-installment services: create this month's invoice once, on or after the payment day.
-     */
-    public function billMonthlyInstallment(?Carbon $today = null): ?Invoice
-    {
-        $today ??= Carbon::today();
-        if ($this->payment_plan !== 'monthly' || (float) $this->installment_amount <= 0 || $this->status === 'cancelled') {
-            return null;
-        }
-
-        $due = $today->copy()->startOfMonth()->day(min(max(1, (int) $this->payment_day), $today->daysInMonth));
-        if ($today->lt($due) || $due->lt(Carbon::parse($this->start_date)->startOfMonth()) || $due->gt(Carbon::parse($this->expiry_date))) {
-            return null;
-        }
-
-        $alreadyBilled = $this->invoices()
-            ->whereYear('due_date', $due->year)
-            ->whereMonth('due_date', $due->month)
-            ->exists();
-        if ($alreadyBilled) {
-            return null;
-        }
-
-        $month = ['', 'کانوونی دووەم', 'شوبات', 'ئازار', 'نیسان', 'ئایار', 'حوزەیران', 'تەمموز', 'ئاب', 'ئەیلوول', 'تشرینی یەکەم', 'تشرینی دووەم', 'کانوونی یەکەم'][$due->month];
-
-        return $this->bill((float) $this->installment_amount, $due, "کرێی مانگی {$month} {$due->year} - {$this->name}");
-    }
-
-    /**
      * "https://Finance.iCodeGroup.net/path" -> "finance.icodegroup.net". Non-domain names are kept as typed.
      */
     public static function normalizeDomain(?string $value): ?string
@@ -241,56 +227,35 @@ class Subscription extends Model
     {
         $this->attributes['domain_name'] = self::normalizeDomain($value);
     }
-    /**
-     * Convert an amount in the given currency to USD (IQD uses USD_TO_IQD).
-     */
-    public static function toUsd(float $amount, ?string $currency): float
-    {
-        return strtoupper((string) $currency) === 'IQD'
-            ? $amount / max(1, (float) config('app.usd_to_iqd', 1500))
-            : $amount;
-    }
-
-    /**
-     * "$100" for dollars, "100,000 د.ع" for dinars.
-     */
     public static function formatAmount(float $amount, ?string $currency): string
     {
-        if (strtoupper((string) $currency) === 'IQD') {
-            return number_format($amount) . ' د.ع';
-        }
-        $decimals = fmod($amount, 1) == 0 ? 0 : 2;
-
-        return (strtoupper((string) ($currency ?: 'USD')) === 'USD' ? '$' : $currency . ' ') . number_format($amount, $decimals);
+        return Money::format($amount, $currency);
     }
 
-    public function getSellingUsdAttribute(): float
+    /** Price per year in the service's own currency (biennial = half, monthly = x12...). */
+    public function getAnnualSellingAttribute(): float
     {
-        return self::toUsd((float) $this->selling_price, $this->currency);
+        return (float) $this->selling_price * self::perYear($this->billing_cycle);
     }
 
-    public function getCostUsdAttribute(): float
+    public function getAnnualCostAttribute(): float
     {
-        return self::toUsd((float) $this->cost_price, $this->currency);
+        return (float) $this->cost_price * self::perYear($this->billing_cycle);
     }
 
+    public static function perYear(?string $cycle): float
+    {
+        return match ($cycle) {
+            'monthly' => 12.0,
+            'quarterly' => 4.0,
+            'semi_annual' => 2.0,
+            'biennial' => 0.5,
+            default => 1.0,
+        };
+    }
     public function getSellingLabelAttribute(): string
     {
         return self::formatAmount((float) $this->selling_price, $this->currency);
-    }
-
-    /**
-     * Price line for client messages: dinar prices stay in dinars, dollar prices get an IQD hint.
-     */
-    private function priceForMessage(): string
-    {
-        if (strtoupper((string) $this->currency) === 'IQD') {
-            return $this->selling_label;
-        }
-
-        $iqd = number_format((float) $this->selling_price * (float) config('app.usd_to_iqd', 1500));
-
-        return "{$this->selling_label} (≈ {$iqd} د.ع)";
     }
 
     /**
@@ -302,7 +267,7 @@ class Subscription extends Model
         $clientName = $client?->business_name ?: $client?->name;
         $target = $this->domain_name ?: $this->name;
         $date = $this->expiry_date->format('Y-m-d');
-        $price = $this->priceForMessage();
+        $price = $this->selling_label;
         $expired = $this->days_until_expiry < 0;
 
         if ($lang === 'ar') {
@@ -393,20 +358,8 @@ class Subscription extends Model
 
     public function getMonthlySellingPriceAttribute(): float
     {
-        if ($this->payment_plan === 'monthly' && (float) $this->installment_amount > 0) {
-            return self::toUsd((float) $this->installment_amount, $this->currency);
-        }
-
-        return match ($this->billing_cycle) {
-            'monthly' => $this->selling_usd,
-            'quarterly' => $this->selling_usd / 3,
-            'semi_annual' => $this->selling_usd / 6,
-            'annual' => $this->selling_usd / 12,
-            'biennial' => $this->selling_usd / 24,
-            default => $this->selling_usd / 12,
-        };
+        return $this->annual_selling / 12;
     }
-
     public function getTypeLabelAttribute(): string
     {
         return match ($this->type) {

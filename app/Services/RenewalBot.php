@@ -112,6 +112,33 @@ class RenewalBot
         return [$text, [$row]];
     }
 
+    /**
+     * Card for a client who has not paid, with a one-tap "paid" button.
+     */
+    public function unpaidCard(Subscription $sub): array
+    {
+        $e = fn ($s) => TelegramNotifier::escape($s);
+        $sub->loadMissing('client');
+
+        $text = '🔴 <b>' . $e($sub->client?->business_name ?: $sub->client?->name) . '</b> پارەی نەداوە' . "\n"
+            . '<code>' . $e($sub->domain_name ?: $sub->name) . '</code> · <b>' . $e($sub->selling_label) . '</b>';
+
+        $row = [];
+        if ($sub->client?->whatsapp_number) {
+            $row[] = ['text' => '📤 واتسئاپ', 'url' => "https://wa.me/{$sub->client->whatsapp_number}"];
+        }
+        $row[] = ['text' => '💰 دای', 'callback_data' => "u:{$sub->id}"];
+
+        return [$text, [$row]];
+    }
+
+    public function sendUnpaidCard(Subscription $sub): ?int
+    {
+        [$text, $keyboard] = $this->unpaidCard($sub);
+
+        return $this->telegram->sendWithButtons($text, $keyboard);
+    }
+
     public function sendInvoiceCard(Invoice $inv): ?int
     {
         [$text, $keyboard] = $this->invoiceCard($inv);
@@ -155,6 +182,21 @@ class RenewalBot
 
         $parts = explode(':', (string) ($cq['data'] ?? ''));
         $action = $parts[0] ?? '';
+
+        if ($action === 'u') {
+            $sub = Subscription::with('client')->find((int) ($parts[1] ?? 0));
+            if ($sub && ! $sub->is_paid) {
+                $sub->markPaid();
+            }
+            $this->telegram->answerCallback($cq['id'], $sub ? '💰 تۆمارکرا' : 'نەدۆزرایەوە');
+            if ($sub) {
+                $this->telegram->editMessage($chatId, $messageId,
+                    '✅ ' . TelegramNotifier::escape($sub->client?->business_name ?: $sub->client?->name)
+                    . ' پارەی داوە · <b>' . TelegramNotifier::escape($sub->selling_label) . '</b>');
+            }
+
+            return;
+        }
 
         if ($action === 'v') {
             $inv = Invoice::with('client')->find((int) ($parts[1] ?? 0));
@@ -265,6 +307,7 @@ class RenewalBot
             Invoice::whereIn('status', ['sent', 'partial', 'overdue'])->whereColumn('paid_amount', '<', 'total')
                 ->whereDate('due_date', '<=', now()->addDays(7)->toDateString())->orderBy('due_date')->get()
                 ->each(fn ($i) => $this->sendInvoiceCard($i));
+            Subscription::with('client')->unpaid()->get()->each(fn ($s) => $this->sendUnpaidCard($s));
 
             return;
         }

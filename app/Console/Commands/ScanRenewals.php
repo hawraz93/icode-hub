@@ -8,6 +8,7 @@ use App\Models\Server;
 use App\Models\Subscription;
 use App\Services\RenewalBot;
 use App\Services\TelegramNotifier;
+use App\Support\Money;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
@@ -37,13 +38,15 @@ class ScanRenewals extends Command
 
         $subscriptions = $this->dueSubscriptions();
         $invoices = $this->dueInvoices();
+        // Once a week, one card per unpaid client with a "paid" button
+        $unpaidCards = Carbon::today()->isMonday() ? Subscription::with('client')->unpaid()->get() : collect();
         $servers = $this->dueServers();
 
         if ($expiredCount) {
             $this->info("{$expiredCount} subscription(s) marked as expired.");
         }
 
-        if ($subscriptions->isEmpty() && $servers->isEmpty() && $invoices->isEmpty()) {
+        if ($subscriptions->isEmpty() && $servers->isEmpty() && $invoices->isEmpty() && $unpaidCards->isEmpty()) {
             $this->info('Nothing needs a reminder today.');
 
             return self::SUCCESS;
@@ -77,6 +80,7 @@ class ScanRenewals extends Command
             foreach ($invoices as $inv) {
                 $bot->sendInvoiceCard($inv);
             }
+            $unpaidCards->each(fn ($sub) => $bot->sendUnpaidCard($sub));
         }
 
         foreach ($subscriptions as $sub) {
@@ -217,22 +221,25 @@ class ScanRenewals extends Command
             $lines[] = '';
         }
         if ($servers->isNotEmpty()) {
-            $lines[] = '🖥 <b>سێرڤەرەکانی خۆت</b>';
+            $lines[] = '🖥 <b>خزمەتگوزارییەکانی خۆت</b>';
             foreach ($servers as $server) {
                 $auto = $server->auto_renew ? ' · خۆکار' : '';
-                $lines[] = '• ' . $e($server->name) . ' (' . $e($server->provider) . ') · ' . $e($server->renewal_status_text) . ' · $' . number_format((float) $server->cost, 0) . $auto;
+                $lines[] = '• ' . $e($server->name) . ' (' . $e($server->kind_label) . ') · ' . $e($server->renewal_status_text) . ' · ' . $e($server->cost_label) . $auto;
             }
             $lines[] = '';
         }
 
-        $unpaid = $subscriptions->where('renewal_stage', '<', Subscription::STAGE_PAID)->sum('selling_usd');
-        $cost = $subscriptions->sum('cost_usd');
+        $cur = fn ($x) => $x->currency;
         if ($invoices && $invoices->isNotEmpty()) {
-            $owed = $invoices->sum(fn ($i) => Subscription::toUsd($i->remaining_balance, $i->currency));
-            $lines[] = '💳 <b>پارەی چاوەڕوانکراو:</b> ' . $invoices->count() . ' · $' . number_format((float) $owed, 0);
-            $lines[] = '';
+            $lines[] = '💳 <b>وەسڵی کاتی دان هاتوو:</b> ' . $invoices->count() . ' · ' . $e(Money::formatTotals(Money::totals($invoices, fn ($i) => $i->remaining_balance, $cur)));
         }
-        $lines[] = '💵 وەرگرتن لە کڕیاران: <b>$' . number_format((float) $unpaid, 0) . '</b> · پارەدان بە دابینکەر: <b>$' . number_format((float) $cost, 0) . '</b>';
+        $unpaid = Subscription::unpaid()->get();
+        if ($unpaid->isNotEmpty()) {
+            $lines[] = '🔴 <b>پارەیان نەداوە:</b> ' . $unpaid->count() . ' · ' . $e(Money::formatTotals(Money::totals($unpaid, fn ($x) => $x->selling_price, $cur)));
+        }
+        $toCollect = $subscriptions->where('renewal_stage', '<', Subscription::STAGE_PAID);
+        $lines[] = '💵 وەرگرتن لە کڕیاران: <b>' . $e(Money::formatTotals(Money::totals($toCollect, fn ($x) => $x->selling_price, $cur))) . '</b>';
+        $lines[] = '🏷 پارەدان بە دابینکەر: <b>' . $e(Money::formatTotals(Money::totals($subscriptions, fn ($x) => $x->cost_price, $cur))) . '</b>';
         $lines[] = '👉 ' . $e(route('admin.renewals'));
 
         return implode("\n", $lines);

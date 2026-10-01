@@ -101,7 +101,7 @@
                                 </div>
 
                                 <div class="flex items-center gap-3">
-                                    <span class="font-mono font-bold text-white text-sm" dir="ltr">${{ number_format($inv->total, 2) }}</span>
+                                    <span class="font-mono font-bold text-white text-sm" dir="ltr">{{ \App\Support\Money::format((float) $inv->total, $inv->currency) }}</span>
                                     <button wire:click="viewInvoice({{ $inv->id }})" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg transition">
                                         بینین و داگرتن
                                     </button>
@@ -125,7 +125,7 @@
                                 </div>
 
                                 <div class="flex items-center gap-3">
-                                    <span class="font-mono font-bold text-white text-sm" dir="ltr">${{ number_format($cnt->total_amount, 2) }}</span>
+                                    <span class="font-mono font-bold text-white text-sm" dir="ltr">{{ \App\Support\Money::format((float) $cnt->total_amount, $cnt->currency) }}</span>
                                     <button wire:click="viewContract({{ $cnt->id }})" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg transition">
                                         بینینی عەقد
                                     </button>
@@ -189,14 +189,14 @@
                             @foreach($selectedInvoice->items as $item)
                                 <div class="flex justify-between p-2 bg-slate-50 rounded-lg">
                                     <span>{{ $item->description }}</span>
-                                    <span class="font-mono font-bold" dir="ltr">${{ number_format($item->total_price, 2) }}</span>
+                                    <span class="font-mono font-bold" dir="ltr">{{ \App\Support\Money::format((float) $item->total_price, $selectedInvoice->currency) }}</span>
                                 </div>
                             @endforeach
                         </div>
 
                         <div class="flex justify-between text-base font-black border-t pt-3">
                             <span>کۆی گشتی:</span>
-                            <span class="font-mono text-indigo-600" dir="ltr">${{ number_format($selectedInvoice->total, 2) }}</span>
+                            <span class="font-mono text-indigo-600" dir="ltr">{{ \App\Support\Money::format((float) $selectedInvoice->total, $selectedInvoice->currency) }}</span>
                         </div>
                     </div>
 
@@ -224,7 +224,7 @@
                         </div>
                         <div class="flex justify-between font-bold text-sm pt-2">
                             <span>کۆی گوژمە:</span>
-                            <span class="font-mono text-indigo-600" dir="ltr">${{ number_format($selectedContract->total_amount, 2) }}</span>
+                            <span class="font-mono text-indigo-600" dir="ltr">{{ \App\Support\Money::format((float) $selectedContract->total_amount, $selectedContract->currency) }}</span>
                         </div>
                     </div>
 

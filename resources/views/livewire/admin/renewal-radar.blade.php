@@ -35,29 +35,24 @@
         <section class="lg:col-span-2 rounded-3xl bg-slate-900 text-white p-5 grid grid-cols-2 gap-4" aria-label="پارەی ٣٠ ڕۆژی داهاتوو">
             <div class="min-w-0">
                 <div class="text-[11px] text-slate-400 font-medium">وەرگرتن لە کڕیاران · ٣٠ ڕۆژ</div>
-                <div class="font-mono font-bold text-2xl sm:text-[28px] leading-tight mt-1" dir="ltr">{{ $money($summary['collect']) }}</div>
-                <div class="text-[11px] text-slate-400 mt-0.5 font-mono" dir="ltr">≈ {{ number_format($summary['collect_iqd']) }} IQD</div>
-                <div class="text-[11px] text-slate-400">{{ $summary['collect_clients'] }} کڕیار</div>
+                <x-money-lines :totals="$summary['collect']" class="font-bold text-xl sm:text-2xl mt-1" />
+                <div class="text-[11px] text-slate-400 mt-0.5">{{ $summary['collect_clients'] }} کڕیار</div>
             </div>
             <div class="min-w-0">
                 <div class="text-[11px] text-slate-400 font-medium">پارەدان بە دابینکەران</div>
-                <div class="font-mono font-bold text-2xl sm:text-[28px] leading-tight mt-1" dir="ltr">{{ $money($summary['pay']) }}</div>
+                <x-money-lines :totals="$summary['pay']" class="font-bold text-xl sm:text-2xl mt-1" />
                 <div class="text-[11px] text-slate-400 mt-0.5">{{ $summary['pay_count'] }} نوێکردنەوە</div>
             </div>
-            <div class="col-span-2 flex items-center justify-between border-t border-white/10 pt-3 text-xs">
+            <div class="col-span-2 flex items-start justify-between border-t border-white/10 pt-3 text-xs">
                 <span class="text-slate-300">قازانجی ئەم نوێکردنەوانە</span>
-                <b class="font-mono text-emerald-400 text-sm" dir="ltr">+{{ $money($summary['profit']) }}</b>
+                <x-money-lines :totals="$summary['profit']" sign="+" class="text-emerald-400 text-sm font-bold text-left" />
             </div>
-            @if($summary['owed_30'] > 0)
-                <div class="col-span-2 -mt-1 flex items-center justify-between rounded-2xl bg-white/10 px-3 py-2 text-[12px]">
-                    <span class="text-slate-300">قەرز لای کڕیاران</span>
-                    <span class="text-left">
-                        @if($summary['owed_now'] > 0)<span class="text-rose-300">ئێستا <b class="font-mono" dir="ltr">{{ $money($summary['owed_now']) }}</b></span> · @endif
-                        ٣٠ ڕۆژ <b class="font-mono" dir="ltr">{{ $money($summary['owed_30']) }}</b>
-                    </span>
+            @if($summary['unpaid'])
+                <div class="col-span-2 -mt-1 flex items-start justify-between rounded-2xl bg-rose-500/20 px-3 py-2 text-[12px]">
+                    <span class="text-rose-100 font-bold">پارەی نەدراو لای کڕیاران</span>
+                    <x-money-lines :totals="$summary['unpaid']" class="text-rose-200 font-bold text-left" />
                 </div>
-            @endif
-            @if($summary['paid_not_renewed'] > 0)
+            @endif            @if($summary['paid_not_renewed'] > 0)
                 <div class="col-span-2 -mt-1 flex items-center gap-2 rounded-2xl bg-indigo-500/20 text-indigo-100 px-3 py-2 text-[12px] font-bold">
                     <span class="w-2 h-2 rounded-full bg-indigo-300 animate-pulse flex-shrink-0"></span>
                     {{ $summary['paid_not_renewed'] }} پارەیان داوە بەڵام هێشتا لای دابینکەر نوێ نەکراونەتەوە
@@ -89,55 +84,34 @@
         </section>
     </div>
 
-    {{-- 1b. Money clients owe (invoices / recorded debts) --}}
-    @if($dues->isNotEmpty())
-        <section class="space-y-2.5" aria-label="پارەی چاوەڕوانکراو">
+    {{-- 1b. Clients who have not paid (marked "unpaid" on the service) --}}
+    @if($unpaid->isNotEmpty())
+        <section class="space-y-2.5" aria-label="پارەی نەداوە">
             <h2 class="font-display font-extrabold text-[13px] text-slate-900 flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-[3px] bg-indigo-600"></span>
-                پارەی چاوەڕوانکراو
-                <span class="font-mono font-medium text-xs text-slate-400">{{ $dues->count() }}</span>
+                <span class="w-2.5 h-2.5 rounded-[3px] bg-rose-600"></span>
+                پارەیان نەداوە
+                <span class="font-mono font-medium text-xs text-slate-400">{{ $unpaid->count() }}</span>
             </h2>
             <div class="bg-white border border-slate-200/90 rounded-[20px] divide-y divide-slate-100">
-                @foreach($dues as $inv)
-                    @php
-                        $todayDate = \Carbon\Carbon::today();
-                        $late = $inv->due_date->lt($todayDate);
-                        $isToday = $inv->due_date->isToday();
-                        $waPay = $inv->paymentReminderUrl();
-                        $monthNames = ['', 'کانوونی٢', 'شوبات', 'ئازار', 'نیسان', 'ئایار', 'حوزەیران', 'تەمموز', 'ئاب', 'ئەیلوول', 'تشرینی١', 'تشرینی٢', 'کانوونی١'];
-                    @endphp
-                    <div wire:key="due-{{ $inv->id }}" class="flex items-center gap-3 px-4 py-3">
-                        <div class="w-12 flex-shrink-0 text-center leading-tight">
-                            <div class="font-mono font-bold text-[15px] {{ $late ? 'text-rose-600' : ($isToday ? 'text-orange-600' : 'text-slate-900') }}">{{ $inv->due_date->format('d') }}</div>
-                            <div class="text-[10px] text-slate-400">{{ $monthNames[$inv->due_date->month] }}</div>
-                        </div>
-                        <div class="min-w-0 flex-1">
-                            <div class="text-sm font-bold text-slate-900 truncate">{{ $inv->client?->business_name ?: $inv->client?->name }}</div>
-                            <div class="text-[11px] text-slate-500 truncate">
-                                {{ $inv->subscription?->domain_name ?: $inv->invoice_number }} ·
-                                @if($late)
-                                    <span class="text-rose-600 font-bold">{{ $inv->due_date->diffInDays($todayDate) }} ڕۆژ دواکەوتووە</span>
-                                @elseif($isToday)
-                                    <span class="text-orange-600 font-bold">ئەمڕۆ</span>
-                                @else
-                                    ماوە {{ $todayDate->diffInDays($inv->due_date) }} ڕۆژ
-                                @endif
-                            </div>
-                        </div>
-                        <span class="font-mono text-[13px] font-bold text-slate-900" dir="ltr">{{ $money($inv->remaining_balance, $inv->currency) }}</span>
-                        @if($waPay)
-                            <a href="{{ $waPay }}" target="_blank" rel="noopener" class="flex-shrink-0 p-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100" aria-label="بیرخستنەوە بە واتسئاپ">
+                @foreach($unpaid as $u)
+                    <div wire:key="unpaid-{{ $u->id }}" class="flex items-center gap-3 px-4 py-3">
+                        <button type="button" @click="open = {{ $u->id }}" class="min-w-0 flex-1 text-start cursor-pointer">
+                            <div class="text-sm font-bold text-slate-900 truncate">{{ $u->client?->business_name ?: $u->client?->name }}</div>
+                            <div class="text-[11px] text-slate-500 truncate font-mono" dir="ltr" style="text-align:right">{{ $u->domain_name ?: $u->name }}</div>
+                        </button>
+                        <span class="font-mono text-[13px] font-bold text-rose-600" dir="ltr">{{ $u->selling_label }}</span>
+                        @if($u->client?->whatsapp_number)
+                            <a href="https://wa.me/{{ $u->client->whatsapp_number }}" target="_blank" rel="noopener" class="flex-shrink-0 p-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100" aria-label="واتسئاپ">
                                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654z"/></svg>
                             </a>
                         @endif
-                        <button type="button" wire:click="markInvoicePaid({{ $inv->id }})" wire:loading.attr="disabled" wire:target="markInvoicePaid({{ $inv->id }})"
-                                class="flex-shrink-0 rounded-xl bg-slate-900 hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-bold px-3 py-2 cursor-pointer">وەرگیرا</button>
+                        <button type="button" wire:click="togglePaid({{ $u->id }})" wire:loading.attr="disabled" wire:target="togglePaid({{ $u->id }})"
+                                class="flex-shrink-0 rounded-xl bg-slate-900 hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-bold px-3 py-2 cursor-pointer">دای</button>
                     </div>
                 @endforeach
             </div>
         </section>
     @endif
-
     {{-- 2. Type filter --}}
     <a href="{{ route('admin.quick-add') }}"
        class="fixed z-30 left-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] lg:bottom-8 lg:left-8 w-14 h-14 rounded-[20px] bg-indigo-600 hover:bg-indigo-700 text-white grid place-items-center shadow-[0_10px_24px_-6px_rgba(79,70,229,.7)] transition"
@@ -236,8 +210,8 @@
         <section class="space-y-2.5 pt-2">
             <h2 class="font-display font-extrabold text-[13px] text-slate-900 flex items-center gap-2">
                 <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 4h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 9h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2zm2-5.5h.01M7 16.5h.01"/></svg>
-                سێرڤەرەکانی خۆت
-                <span class="font-mono font-medium text-xs text-slate-400">{{ $money($servers->sum('cost')) }}</span>
+                خزمەتگوزارییەکانی خۆم
+                <span class="font-mono font-medium text-xs text-slate-400" dir="ltr">{{ \App\Support\Money::formatTotals(\App\Support\Money::totals($servers, fn ($x) => $x->cost, fn ($x) => $x->currency)) }}</span>
             </h2>
             <div class="bg-white border border-slate-200/90 rounded-[20px] divide-y divide-slate-100">
                 @foreach($servers as $srv)
@@ -323,39 +297,12 @@
                     </div>
                 @endif
 
-                {{-- Payments for this service --}}
-                @php $defaultDue = \Carbon\Carbon::today()->addMonthNoOverflow()->startOfMonth()->toDateString(); @endphp
-                <div class="rounded-2xl border border-slate-200 p-3 space-y-2"
-                     x-data="{ adding: false, amount: @js((float) $s->selling_price), due: @js($defaultDue) }">
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold text-slate-700">پارەدان
-                            @if($s->payment_plan === 'monthly')
-                                <span class="ms-1 text-[10px] font-medium text-indigo-600">مانگانە {{ $money($s->installment_amount, $s->currency) }} · ڕۆژی {{ $s->payment_day }}</span>
-                            @endif
-                        </span>
-                        <button type="button" @click="adding = !adding" class="text-[11px] font-bold text-indigo-600 hover:bg-indigo-50 rounded-lg px-2 py-1 cursor-pointer">+ تۆمارکردنی قەرز</button>
-                    </div>
-                    @forelse($openInvoices as $inv)
-                        <div wire:key="open-inv-{{ $inv->id }}" class="flex items-center justify-between gap-2 text-[12px]">
-                            <span class="text-slate-600 font-mono">{{ $inv->due_date->format('Y-m-d') }}
-                                @if($inv->due_date->lt(\Carbon\Carbon::today()))<span class="text-rose-600 font-bold font-sans">· دواکەوتوو</span>@endif
-                            </span>
-                            <span class="flex items-center gap-2">
-                                <b class="font-mono" dir="ltr">{{ $money($inv->remaining_balance, $inv->currency) }}</b>
-                                <button type="button" wire:click="markInvoicePaid({{ $inv->id }})" class="rounded-lg bg-slate-900 text-white px-2 py-1 text-[11px] font-bold cursor-pointer">وەرگیرا</button>
-                            </span>
-                        </div>
-                    @empty
-                        <p class="text-[11px] text-slate-400">هیچ قەرزێکی لەسەر نییە.</p>
-                    @endforelse
-                    <div x-show="adding" x-transition style="display:none" class="grid grid-cols-[1fr_1fr_auto] gap-2 pt-1">
-                        <input type="number" step="any" x-model="amount" id="debt-amount-{{ $s->id }}" dir="ltr" class="min-w-0 rounded-xl border-slate-200 text-sm font-mono" aria-label="بڕ">
-                        <input type="date" x-model="due" id="debt-due-{{ $s->id }}" class="min-w-0 rounded-xl border-slate-200 text-sm font-mono" aria-label="کاتی دان">
-                        <button type="button" @click="$wire.recordDebt({{ $s->id }}, amount, due); adding = false" class="rounded-xl bg-indigo-600 text-white text-xs font-bold px-3 cursor-pointer">تۆمار</button>
-                        <p class="col-span-3 text-[10px] text-slate-400">بۆ نموونە «سەری مانگ دەیدەم» ← یەکەمی مانگی داهاتوو خۆی دانراوە.</p>
-                    </div>
-                </div>
-
+                {{-- Has the client paid for this period? --}}
+                <button type="button" wire:click="togglePaid({{ $s->id }})" wire:loading.attr="disabled" wire:target="togglePaid({{ $s->id }})"
+                        class="w-full flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold cursor-pointer transition {{ $s->is_paid ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 hover:bg-rose-100' }}">
+                    <span>{{ $s->is_paid ? '✓ پارەی داوە' : '✗ پارەی نەداوە' }}</span>
+                    <span class="text-xs font-medium opacity-75">{{ $s->is_paid ? 'گۆڕین بۆ نەداوە' : 'دەست لێبدە کاتێک دای' }}</span>
+                </button>
                 {{-- Renewal steps --}}
                 <ol class="relative">
                     @foreach([1 => ['ئاگادارکرایەوە', 'نامە بۆ کڕیار نێردرا'], 2 => ['پارەی وەرگیرا', 'FIB · FastPay · کاش']] as $n => [$t, $d])

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Server;
 use App\Models\Subscription;
 use App\Services\TelegramNotifier;
+use App\Support\Money;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
@@ -30,33 +31,34 @@ class MonthlySummary extends Command
         $overdue = Subscription::whereIn('status', ['active', 'grace_period', 'expired'])
             ->whereDate('expiry_date', '<', $start->toDateString())
             ->get();
-        $serverCost = Server::where('status', 'active')->get()->sum(fn ($s) => match ($s->billing_cycle) {
-            'annual' => $s->cost / 12,
-            'semi_annual' => $s->cost / 6,
-            'quarterly' => $s->cost / 3,
-            default => (float) $s->cost,
-        });
-
-        $income = $month->sum('selling_usd');
-        $cost = $month->sum('cost_usd');
+        $cur = fn ($x) => $x->currency;
+        $income = Money::totals($month, fn ($s) => $s->selling_price, $cur);
+        $providerCost = Money::totals($month, fn ($s) => $s->cost_price, $cur);
+        $ownCost = Money::totals(Server::where('status', 'active')->get(), fn ($s) => $s->annual_cost / 12, $cur);
+        $profit = Money::subtract(Money::subtract($income, $providerCost), $ownCost);
+        $unpaid = Subscription::unpaid()->get();
+        $fmt = fn (array $t) => '<b>' . $e(Money::formatTotals($t)) . '</b>';
 
         $lines = [
             '📅 <b>پوختەی ' . self::MONTHS[$start->month] . ' ' . $start->year . '</b>',
             '',
             "🔁 نوێکردنەوەکانی ئەم مانگە: <b>{$month->count()}</b>",
-            '💵 وەرگرتن: <b>$' . number_format($income) . '</b>',
-            '🏷 پارەدان بە دابینکەران: <b>$' . number_format($cost) . '</b>',
-            '🖥 سێرڤەرەکانی خۆت: <b>$' . number_format($serverCost) . '</b>',
-            '📈 قازانج: <b>$' . number_format($income - $cost - $serverCost) . '</b>',
+            '💵 وەرگرتن: ' . $fmt($income),
+            '🏷 پارەدان بە دابینکەران: ' . $fmt($providerCost),
+            '🖥 خزمەتگوزارییەکانی خۆت: ' . $fmt($ownCost),
+            '📈 قازانج: ' . $fmt($profit),
         ];
-        if ($overdue->isNotEmpty()) {
+        if ($unpaid->isNotEmpty()) {
             $lines[] = '';
-            $lines[] = "🔴 هێشتا {$overdue->count()} بەسەرچووی مانگەکانی پێشوو ماوە ($" . number_format($overdue->sum('selling_usd')) . ')';
+            $lines[] = "🔴 {$unpaid->count()} کڕیار پارەیان نەداوە: " . $fmt(Money::totals($unpaid, fn ($s) => $s->selling_price, $cur));
+        }
+        if ($overdue->isNotEmpty()) {
+            $lines[] = "⏰ {$overdue->count()} بەسەرچووی مانگەکانی پێشوو هێشتا نوێ نەکراونەتەوە";
         }
         if ($month->isNotEmpty()) {
             $lines[] = '';
-            $lines[] = '<b>گەورەترینەکان:</b>';
-            foreach ($month->sortByDesc('selling_usd')->take(5) as $sub) {
+            $lines[] = '<b>ئەم مانگە:</b>';
+            foreach ($month->take(8) as $sub) {
                 $lines[] = '• ' . $sub->expiry_date->format('m-d') . ' <code>' . $e($sub->domain_name ?: $sub->name) . '</code> · ' . $e($sub->selling_label);
             }
         }
