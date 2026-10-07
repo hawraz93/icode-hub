@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\FinanceException;
 use App\Livewire\Admin\RenewalRadar;
 use App\Models\ActivityReminder;
 use App\Models\Client;
@@ -200,13 +201,25 @@ class RenewalBot
 
         if ($action === 'v') {
             $inv = Invoice::with('client')->find((int) ($parts[1] ?? 0));
-            if ($inv && $inv->status !== 'paid') {
-                $inv->markPaid();
-            }
-            $this->telegram->answerCallback($cq['id'], $inv ? '💰 تۆمارکرا' : 'نەدۆزرایەوە');
+            $payment = null;
+            $error = null;
             if ($inv) {
+                try {
+                    // Same rule as the web: only the remaining balance; a repeated tap records nothing.
+                    $payment = $inv->markPaid(null, 'telegram', "tg:v:{$inv->id}:{$messageId}");
+                } catch (FinanceException $e) {
+                    $error = $e->getMessage();
+                }
+            }
+            $this->telegram->answerCallback($cq['id'], match (true) {
+                ! $inv => 'نەدۆزرایەوە',
+                $error !== null => Str::limit($error, 190),
+                $payment === null => 'پێشتر تۆمارکرابوو',
+                default => '💰 تۆمارکرا',
+            });
+            if ($inv && $error === null) {
                 $this->telegram->editMessage($chatId, $messageId,
-                    '✅ پارەی <b>' . TelegramNotifier::escape(Subscription::formatAmount((float) $inv->total, $inv->currency)) . '</b> وەرگیرا · '
+                    '✅ ' . ($payment ? 'پارەی <b>' . TelegramNotifier::escape(Subscription::formatAmount((float) $payment->amount, $payment->currency)) . '</b> وەرگیرا' : 'وەسڵەکە پێشتر پاکتاو کرابوو') . ' · '
                     . TelegramNotifier::escape($inv->client?->business_name ?: $inv->client?->name));
             }
 
@@ -304,7 +317,7 @@ class RenewalBot
                 $this->telegram->sendWithButtons('✨ هیچ شتێک لە ٧ ڕۆژی داهاتوودا بەسەرناچێت.');
             }
             $subs->each(fn ($s) => $this->sendCard($s));
-            Invoice::whereIn('status', ['sent', 'partial', 'overdue'])->whereColumn('paid_amount', '<', 'total')
+            Invoice::open()
                 ->whereDate('due_date', '<=', now()->addDays(7)->toDateString())->orderBy('due_date')->get()
                 ->each(fn ($i) => $this->sendInvoiceCard($i));
             Subscription::with('client')->unpaid()->get()->each(fn ($s) => $this->sendUnpaidCard($s));

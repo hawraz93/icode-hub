@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,6 +32,10 @@ class Project extends Model
         'is_featured',
         'order_index',
         'completion_date',
+        'start_date',
+        'is_public',
+        'archived_at',
+        'internal_notes',
     ];
 
     protected $casts = [
@@ -38,7 +43,50 @@ class Project extends Model
         'gallery' => 'array',
         'is_featured' => 'boolean',
         'completion_date' => 'date',
+        'start_date' => 'date',
+        'is_public' => 'boolean',
+        'archived_at' => 'datetime',
     ];
+
+    public const STATUSES = [
+        'planned' => 'پلان',
+        'in_progress' => 'لە کاردایە',
+        'completed' => 'تەسلیمکراوە',
+        'maintenance' => 'پشتگیری / چاکسازی',
+    ];
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    /** Costs bought for this project only (domain, licence...). Shared VPS cost is never here. */
+    public function directExpenses(): HasMany
+    {
+        return $this->hasMany(Expense::class);
+    }
+
+    /** Shown on the public website: published and not archived. */
+    public function scopePublished(Builder $query): Builder
+    {
+        return $query->where('is_public', true)->whereNull('archived_at');
+    }
+
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereNull('archived_at');
+    }
+
+    /** Has money history (invoices, contracts or services) and therefore can only be archived. */
+    public function getHasFinancialHistoryAttribute(): bool
+    {
+        return $this->invoices()->exists() || $this->contracts()->exists() || $this->subscriptions()->exists();
+    }
+
+    public function getStatusLabelAttribute(): string
+    {
+        return self::STATUSES[$this->status] ?? $this->status;
+    }
 
     public function client(): BelongsTo
     {

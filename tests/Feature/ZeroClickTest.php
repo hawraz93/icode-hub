@@ -215,6 +215,7 @@ class ZeroClickTest extends TestCase
         $this->assertSame(0, Artisan::call('renewals:monthly', ['--dry-run' => true]));
         $output = Artisan::output();
         $this->assertStringContainsString('نوێکردنەوەکانی ئەم مانگە: 2', $output);
-        $this->assertStringContainsString('وەرگرتن: $100 · 150,000 د.ع', $output); // never converted or added
+        // never converted or added; labelled as a forecast, since renewal prices are not money received
+        $this->assertStringContainsString('نرخی نوێکردنەوەکان (پێشبینی): $100 · 150,000 د.ع', $output);
     }
 }

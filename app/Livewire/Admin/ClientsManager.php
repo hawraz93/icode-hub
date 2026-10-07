@@ -27,7 +27,10 @@ class ClientsManager extends Component
     public string $address = '';
     public string $notes = '';
     public string $status = 'active';
-    public string $portal_access_code = '';
+
+    /** Plain portal code, shown once right after it is issued. Only its hash is stored. */
+    public ?string $issuedPortalCode = null;
+    public ?string $issuedPortalFor = null;
 
     protected function rules(): array
     {
@@ -41,7 +44,6 @@ class ClientsManager extends Component
             'address' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
             'status' => 'required|in:active,inactive',
-            'portal_access_code' => 'required|string|max:50',
         ];
     }
 
@@ -64,7 +66,6 @@ class ClientsManager extends Component
         $this->address = $client->address ?? '';
         $this->notes = $client->notes ?? '';
         $this->status = $client->status;
-        $this->portal_access_code = $client->portal_access_code ?? 'CL-' . strtoupper(Str::random(6));
 
         $this->showModal = true;
     }
@@ -90,16 +91,44 @@ class ClientsManager extends Component
                 'description' => 'زانیاری کڕیار بە سەرکەوتوویی نوێکرایەوە.',
             ]);
         } else {
-            Client::create($validated);
-            $this->notification()->send([
-                'icon' => 'success',
-                'title' => 'کڕیار زیادکرا',
-                'description' => 'کڕیاری نوێ بە سەرکەوتوویی تۆمارکرا.',
-            ]);
+            $client = Client::create($validated);
+            $this->showIssuedCode($client, $client->rotatePortalToken());
         }
 
         $this->showModal = false;
         $this->resetForm();
+    }
+
+    /**
+     * Issue a new portal code (the old one, including a legacy CL-XXXXXX code, stops working).
+     */
+    public function rotatePortalCode(int $id): void
+    {
+        $client = Client::findOrFail($id);
+        $this->showIssuedCode($client, $client->rotatePortalToken());
+    }
+
+    public function revokePortalCode(int $id): void
+    {
+        $client = Client::findOrFail($id);
+        $client->revokePortalAccess();
+
+        $this->notification()->send([
+            'icon' => 'warning',
+            'title' => 'دەستگەیشتنی پۆرتاڵ داخرا',
+            'description' => "{$client->display_name} ئیتر ناتوانێت بچێتە پۆرتاڵ.",
+        ]);
+    }
+
+    public function closeIssuedCode(): void
+    {
+        $this->reset(['issuedPortalCode', 'issuedPortalFor']);
+    }
+
+    private function showIssuedCode(Client $client, string $code): void
+    {
+        $this->issuedPortalCode = $code;
+        $this->issuedPortalFor = $client->display_name;
     }
 
     public function confirmDelete(int $id): void
@@ -130,6 +159,16 @@ class ClientsManager extends Component
     public function delete(int $id): void
     {
         $client = Client::find($id);
+        if ($client && $client->invoices()->exists()) {
+            // Deleting would cascade away invoices and payment history; deactivate instead.
+            $this->notification()->send([
+                'icon' => 'error',
+                'title' => 'ناسڕدرێتەوە',
+                'description' => 'ئەم کڕیارە وەسڵی هەیە و مێژووی دارایی دەپارێزرێت. لە جیاتی سڕینەوە بیکە بە ناچالاک.',
+            ]);
+
+            return;
+        }
         if ($client) {
             $client->delete();
 
@@ -153,16 +192,15 @@ class ClientsManager extends Component
         $this->address = '';
         $this->notes = '';
         $this->status = 'active';
-        $this->portal_access_code = 'CL-' . strtoupper(Str::random(6));
     }
 
     public function render()
     {
         $clients = Client::with(['invoices', 'subscriptions', 'contracts'])
             ->when($this->search, function ($q) {
-                $q->where('name', 'like', "%{$this->search}%")
+                $q->where(fn ($w) => $w->where('name', 'like', "%{$this->search}%")
                   ->orWhere('business_name', 'like', "%{$this->search}%")
-                  ->orWhere('phone', 'like', "%{$this->search}%");
+                  ->orWhere('phone', 'like', "%{$this->search}%"));
             })
             ->latest()
             ->paginate(10);

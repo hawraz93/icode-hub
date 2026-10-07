@@ -45,7 +45,7 @@ class PortfolioHome extends Component
 
     public function viewProject(int $id): void
     {
-        $this->selectedProject = Project::with('client')->findOrFail($id);
+        $this->selectedProject = Project::published()->with('client')->findOrFail($id); // private client work is never exposed by ID
         $this->showProjectModal = true;
     }
 
@@ -66,7 +66,6 @@ class PortfolioHome extends Component
             'phone' => $this->req_phone,
             'notes' => "داواکاری نوێ بۆ خزمەتگوزاری: {$this->req_service}. پەیام: {$this->req_message}",
             'status' => 'active',
-            'portal_access_code' => 'CL-' . strtoupper(substr(md5(time()), 0, 6)),
         ]);
 
         $this->notification()->send([
@@ -81,14 +80,15 @@ class PortfolioHome extends Component
 
     public function render()
     {
-        $projects = Project::when($this->selectedCategory !== 'all', function ($q) {
+        // Only published, non-archived projects; internal client work stays private.
+        $projects = Project::published()->when($this->selectedCategory !== 'all', function ($q) {
                 $q->where('category', $this->selectedCategory);
             })
             ->orderBy('order_index')
             ->get();
 
         $stats = [
-            'projects_count' => Project::count(),
+            'projects_count' => Project::published()->count(),
             'clients_count' => Client::count(),
             'servers_count' => Server::count(),
             'subscriptions_count' => Subscription::count(),

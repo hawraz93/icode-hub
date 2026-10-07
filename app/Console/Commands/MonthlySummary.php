@@ -2,7 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Server;
+use App\Models\Expense;
+use App\Models\ExpenseSchedule;
+use App\Models\Payment;
 use App\Models\Subscription;
 use App\Services\TelegramNotifier;
 use App\Support\Money;
@@ -34,7 +36,10 @@ class MonthlySummary extends Command
         $cur = fn ($x) => $x->currency;
         $income = Money::totals($month, fn ($s) => $s->selling_price, $cur);
         $providerCost = Money::totals($month, fn ($s) => $s->cost_price, $cur);
-        $ownCost = Money::totals(Server::where('status', 'active')->get(), fn ($s) => $s->annual_cost / 12, $cur);
+        // Forecast of this month's share of recurring plans (each VPS once); not money already paid.
+        $ownCost = Money::totals(ExpenseSchedule::active()->get(), fn ($s) => $s->annual_forecast / 12, $cur);
+        $paidExpenses = Money::totals(Expense::posted()->whereBetween('expense_date', [$start->toDateString(), $end->toDateString()])->get(), fn ($x) => $x->amount, $cur);
+        $received = Money::totals(Payment::receivedBetween($start->toDateString(), $end->toDateString())->get(), fn ($x) => $x->amount, $cur);
         $profit = Money::subtract(Money::subtract($income, $providerCost), $ownCost);
         $unpaid = Subscription::unpaid()->get();
         $fmt = fn (array $t) => '<b>' . $e(Money::formatTotals($t)) . '</b>';
@@ -43,10 +48,13 @@ class MonthlySummary extends Command
             '📅 <b>پوختەی ' . self::MONTHS[$start->month] . ' ' . $start->year . '</b>',
             '',
             "🔁 نوێکردنەوەکانی ئەم مانگە: <b>{$month->count()}</b>",
-            '💵 وەرگرتن: ' . $fmt($income),
-            '🏷 پارەدان بە دابینکەران: ' . $fmt($providerCost),
-            '🖥 خزمەتگوزارییەکانی خۆت: ' . $fmt($ownCost),
-            '📈 قازانج: ' . $fmt($profit),
+            '💵 نرخی نوێکردنەوەکان (پێشبینی): ' . $fmt($income),
+            '🏷 پارەدان بە دابینکەران (پێشبینی): ' . $fmt($providerCost),
+            '🖥 بەشی مانگانەی پلانی خەرجی: ' . $fmt($ownCost),
+            '📈 جیاوازی پێشبینی: ' . $fmt($profit),
+            '',
+            '💰 پارەی وەرگیراو تا ئێستا: ' . $fmt($received),
+            '💸 خەرجی دراو تا ئێستا: ' . $fmt($paidExpenses),
         ];
         if ($unpaid->isNotEmpty()) {
             $lines[] = '';
