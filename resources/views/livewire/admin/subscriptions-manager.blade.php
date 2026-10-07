@@ -257,11 +257,17 @@
                 </div>
                 <x-select
                     placeholder="کڕیار هەڵبژێرە"
-                    wire:model="client_id"
+                    wire:model.live="client_id"
                     :options="$clients"
                     option-label="displayName"
                     option-value="id"
                 />
+                <x-native-select label="پڕۆژە (هی هەمان کڕیار)" wire:model="project_id" :disabled="! $client_id">
+                    <option value="">— بێ پڕۆژە —</option>
+                    @foreach($projects as $project)
+                        <option value="{{ $project->id }}">{{ $project->title }}</option>
+                    @endforeach
+                </x-native-select>
             </div>
 
             <!-- 3. Dynamic Service Details (Context-Aware) -->
@@ -288,8 +294,8 @@
                     />
                 </div>
 
-                @if(in_array($type, ['bundle', 'hosting']))
-                    <!-- Host Server (Only for hosting & bundle) -->
+                @if(in_array($type, ['bundle', 'hosting']) || $cost_basis === 'shared_infrastructure')
+                    <!-- Host Server (where it is hosted; linking never creates an expense) -->
                     <div>
                         <x-native-select
                             label="سێرڤەری میوانداریکەر (Host Server)"
@@ -325,15 +331,25 @@
                                 class="px-4 py-1.5 text-sm rounded-lg font-bold cursor-pointer {{ $currency === 'IQD' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500' }}">د.ع دینار</button>
                     </div>
                 </div>
+                <x-native-select label="تێچووی ئەم خزمەتگوزارییە چۆنە؟" wire:model.live="cost_basis">
+                    @foreach($costBases as $value => $label)
+                        <option value="{{ $value }}">{{ $label }}</option>
+                    @endforeach
+                </x-native-select>
+                @if($cost_basis === 'shared_infrastructure')
+                    <p class="text-[11px] text-slate-500">تێچووی VPS یەکجار لە «خەرجی دووبارە» هەژمار دەکرێت؛ لێرە نرخی کڕین نانووسرێت. تەنها VPSی میواندار هەڵبژێرە.</p>
+                @endif
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    @if($cost_basis !== 'shared_infrastructure')
                     <div>
                         <x-input type="number" step="any" min="0" inputmode="decimal"
-                            label="کۆی تێچووی سەر خۆت (تۆ چەند دەدەیت) *"
+                            label="{{ $cost_basis === 'direct_purchase' ? 'نرخی کڕینی ڕاستەوخۆ *' : 'تێچوو (ئەگەر دەزانیت)' }}"
                             placeholder="{{ $currency === 'IQD' ? '25,000' : '20' }}"
                             prefix="{{ $currency === 'IQD' ? 'د.ع' : '$' }}"
                             wire:model.live="cost_price"
  />
                     </div>
+                    @endif
 
                     <div>
                         <x-input type="number" step="any" min="0" inputmode="decimal"
@@ -345,17 +361,19 @@
                     </div>
                 </div>
 
-                <!-- Dynamic Live Profit Pill -->
+                <!-- Margin only when the direct cost is known; shared hosting has no per-client cost -->
+                @if($cost_basis === 'direct_purchase')
                 <div class="p-3 bg-emerald-50/90 border border-emerald-200/80 rounded-xl flex items-center justify-between shadow-xs">
                     <div class="flex items-center gap-2">
                         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span class="text-xs font-extrabold text-emerald-900">قازانجی خاوێنی تۆ:</span>
+                        <span class="text-xs font-extrabold text-emerald-900">پەراوێزی ڕاستەوخۆ:</span>
                         <span class="text-[11px] text-emerald-700 font-mono" dir="ltr">({{ \App\Support\Money::format((float) $selling_price, $currency) }} فرۆشتن - {{ \App\Support\Money::format((float) $cost_price, $currency) }} تێچوو)</span>
                     </div>
                     <span class="text-sm font-black text-emerald-700 font-mono" dir="ltr">
                         +{{ \App\Support\Money::format(max(0, (float) $selling_price - (float) $cost_price), $currency) }}
                     </span>
                 </div>
+                @endif
             </div>
 
             <!-- 5. Billing Cycle & Dates -->

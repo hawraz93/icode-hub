@@ -9,6 +9,8 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\Project;
+use App\Models\Subscription;
+use App\Services\InvoiceService;
 use App\Services\PaymentService;
 use App\Support\Decimal;
 use Carbon\Carbon;
@@ -24,6 +26,7 @@ class InvoicesManager extends Component
     use WithPagination;
     use WireUiActions;
 
+    #[Url]
     public string $search = '';
     #[Url]
     public string $statusFilter = 'all';
@@ -87,13 +90,38 @@ class InvoicesManager extends Component
             'items.*.service_type' => 'required|in:development,hosting,domain,vps,email,maintenance,license,other',
             'items.*.billing_cycle' => 'required|in:one_time,monthly,annual',
             'items.*.start_date' => 'nullable|required_unless:items.*.billing_cycle,one_time|date',
-            'items.*.expiry_date' => 'nullable|required_unless:items.*.billing_cycle,one_time|date|after:items.*.start_date',
+            'items.*.expiry_date' => 'nullable|date|after:items.*.start_date',
+            'items.*.custom_period' => 'boolean',
+            'items.*.period_note' => 'nullable|string|max:255',
+            'items.*.subscription_id' => 'nullable|integer',
+            'items.*.create_service' => 'boolean',
         ];
     }
 
+    /**
+     * ?new=1&client=5&project=9 (from a project page) opens the form with client and project filled.
+     */
     public function mount(): void
     {
         $this->addItem();
+
+        if (request()->boolean('new')) {
+            $this->openModal();
+            $project = request()->integer('project') ? Project::find(request()->integer('project')) : null;
+            $this->client_id = $project?->client_id ?? (request()->integer('client') ?: null);
+            $this->project_id = $project?->client_id ? $project->id : null;
+        }
+    }
+
+    public function updatedClientId(): void
+    {
+        // Project, contract and services must belong to the chosen client.
+        $this->project_id = null;
+        $this->contract_id = null;
+        foreach ($this->items as $i => $item) {
+            $this->items[$i]['subscription_id'] = null;
+            $this->items[$i]['service_period_id'] = null;
+        }
     }
 
     public function addItem(): void
@@ -106,14 +134,20 @@ class InvoicesManager extends Component
             'billing_cycle' => 'one_time',
             'start_date' => null,
             'expiry_date' => null,
+            'custom_period' => false,
+            'period_note' => '',
+            'subscription_id' => null,
+            'service_period_id' => null,
+            'create_service' => false,
         ];
     }
 
     public function updatedItems($value, $key): void
     {
         [$index, $field] = explode('.', $key, 2);
-        if (!in_array($field, ['billing_cycle', 'quantity', 'start_date'], true)) return;
+        if (!in_array($field, ['billing_cycle', 'quantity', 'start_date', 'custom_period'], true)) return;
         $item = $this->items[$index];
+        if (! empty($item['custom_period'])) return; // dates typed by hand, with a reason
         if ($item['billing_cycle'] === 'one_time') {
             $this->items[$index]['start_date'] = null;
             $this->items[$index]['expiry_date'] = null;
@@ -171,6 +205,11 @@ class InvoicesManager extends Component
                 'billing_cycle' => $item->billing_cycle ?? 'one_time',
                 'start_date' => $item->start_date?->format('Y-m-d'),
                 'expiry_date' => $item->expiry_date?->format('Y-m-d'),
+                'custom_period' => (bool) $item->custom_period,
+                'period_note' => $item->period_note ?? '',
+                'subscription_id' => $item->subscription_id,
+                'service_period_id' => $item->service_period_id,
+                'create_service' => false,
             ];
         }
 
@@ -269,62 +308,19 @@ class InvoicesManager extends Component
         $this->notification()->send(['icon' => 'success', 'title' => 'پارەدان گەڕێندرایەوە', 'description' => 'تۆماری پێچەوانە زیادکرا؛ ئەسڵەکەی ماوە.']);
     }
 
-    public function save(PaymentService $payments): void
+    public function save(InvoiceService $invoices): void
     {
-        foreach ($this->items as $index => $item) {
-            if (($item['billing_cycle'] ?? 'one_time') === 'one_time') {
-                $this->items[$index]['start_date'] = null;
-                $this->items[$index]['expiry_date'] = null;
-            }
-        }
         $this->validate();
-        foreach ($this->items as $index => $item) {
-            if ($item['billing_cycle'] !== 'one_time' && (float) $item['quantity'] != (int) $item['quantity']) {
-                $this->addError("items.$index.quantity", 'ژمارە یان بەروارێکی دروست بنووسە.');
-                return;
-            }
-        }
 
-        // Exact decimal totals (no float accumulation)
-        $subtotal = Decimal::sum(array_map(fn ($item) => Decimal::mul($item['unit_price'], $item['quantity']), $this->items));
-        $total = $subtotal->minus(Decimal::of($this->discount))->plus(Decimal::of($this->tax));
-        if ($total->isLessThan(0)) {
-            $total = Decimal::of(0);
-        }
-
-        $existing = $this->editingId ? Invoice::findOrFail($this->editingId) : null;
-        if ($existing) {
-            $netPaid = $payments->netPaid($existing);
-            $hasMoney = $existing->payments()->exists() || Decimal::of($existing->paid_amount)->isGreaterThan(0);
-            if ($hasMoney && $existing->currency !== $this->currency) {
-                $this->addError('currency', 'دراوی وەسڵێک کە پارەی لەسەر تۆمارکراوە ناگۆڕدرێت.');
-                return;
-            }
-            if ($total->isLessThan($netPaid->isGreaterThan(0) ? $netPaid : Decimal::of($existing->paid_amount))) {
-                $this->addError('discount', 'کۆی نوێی وەسڵ لە بڕی دراو کەمترە. سەرەتا پارەدانێک بگەڕێنەوە.');
-                return;
-            }
-            if ($this->status === 'cancelled' && $existing->status !== 'cancelled') {
-                try {
-                    PaymentService::assertCanCancel($existing);
-                } catch (FinanceException $e) {
-                    $this->addError('status', $e->getMessage());
-                    return;
-                }
-            }
-        }
-
-        $invoiceData = [
+        $header = [
             'client_id' => $this->client_id,
             'contract_id' => $this->contract_id,
             'project_id' => $this->project_id,
             'invoice_number' => $this->invoice_number,
             'issue_date' => $this->issue_date,
             'due_date' => $this->due_date,
-            'subtotal' => Decimal::str($subtotal),
-            'discount' => Decimal::str(Decimal::of($this->discount)),
-            'tax' => Decimal::str(Decimal::of($this->tax)),
-            'total' => Decimal::str($total),
+            'discount' => $this->discount ?: 0,
+            'tax' => $this->tax ?: 0,
             'currency' => $this->currency,
             'status' => $this->status,
             'payment_method' => $this->payment_method,
@@ -332,32 +328,9 @@ class InvoicesManager extends Component
             'terms' => $this->terms,
         ];
 
-        DB::transaction(function () use ($invoiceData, $existing, $payments) {
-            if ($existing) {
-                $existing->update($invoiceData);
-                $invoice = $existing;
-                $invoice->items()->delete();
-            } else {
-                $invoice = Invoice::createNumbered($invoiceData + ['paid_amount' => 0]);
-            }
-
-            foreach ($this->items as $item) {
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'description' => $item['description'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'total_price' => Decimal::str(Decimal::mul($item['unit_price'], $item['quantity'])),
-                    'service_type' => $item['service_type'] ?? 'development',
-                    'billing_cycle' => $item['billing_cycle'],
-                    'start_date' => $item['start_date'] ?: null,
-                    'expiry_date' => $item['expiry_date'] ?: null,
-                ]);
-            }
-
-            // paid_amount / partial / paid always follow the payment rows.
-            $payments->refresh($invoice);
-        });
+        // Same rules as every other caller: ownership, periods from start + duration, edit locks.
+        $existing = $this->editingId ? Invoice::findOrFail($this->editingId) : null;
+        $invoices->save($existing, $header, $this->items);
 
         $this->notification()->send([
             'icon' => 'success',
@@ -455,14 +428,17 @@ class InvoicesManager extends Component
             ->paginate(10);
 
         $clients = Client::where('status', 'active')->orderBy('name')->get();
-        $projects = Project::orderBy('title')->get();
-        $contracts = Contract::orderBy('contract_number')->get();
+        // Only the chosen client's projects, contracts and services can be linked.
+        $projects = $this->client_id ? Project::active()->where('client_id', $this->client_id)->orderBy('title')->get() : collect();
+        $contracts = $this->client_id ? Contract::where('client_id', $this->client_id)->orderBy('contract_number')->get() : collect();
+        $services = $this->client_id ? Subscription::where('client_id', $this->client_id)->where('status', '!=', 'cancelled')->orderBy('name')->get() : collect();
 
         return view('livewire.admin.invoices-manager', [
             'invoices' => $invoices,
             'clients' => $clients,
             'projects' => $projects,
             'contracts' => $contracts,
+            'services' => $services,
             'viewingInvoice' => $this->viewingId ? Invoice::with(['client', 'items', 'project', 'payments.reversal'])->find($this->viewingId) : null,
             'paymentInvoice' => $this->paymentInvoiceId ? Invoice::find($this->paymentInvoiceId) : null,
             'paymentMethods' => Payment::METHODS,

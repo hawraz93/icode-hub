@@ -160,7 +160,7 @@
                 <x-select
                     label="کڕیار / کۆمپانیا *"
                     placeholder="کڕیار هەڵبژێرە"
-                    wire:model="client_id"
+                    wire:model.live="client_id"
                     :options="$clients"
                     option-label="displayName"
                     option-value="id"

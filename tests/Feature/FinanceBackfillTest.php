@@ -91,6 +91,36 @@ class FinanceBackfillTest extends TestCase
         $this->assertSame($counts, [Payment::count(), ExpenseSchedule::count(), Expense::count(), Expense::where('needs_review', true)->count()]);
     }
 
+    public function test_services_get_their_period_and_cost_basis_without_guessing(): void
+    {
+        $client = Client::create(['name' => 'Svc client']);
+        $now = now();
+        $serverId = DB::table('servers')->insertGetId(['name' => 'VPS', 'cost' => 20, 'currency' => 'USD', 'billing_cycle' => 'monthly', 'renewal_date' => '2026-11-01', 'status' => 'active', 'created_at' => $now, 'updated_at' => $now]);
+        DB::table('projects')->insert(['client_id' => $client->id, 'title' => 'Only project', 'slug' => 'only-project', 'is_public' => false, 'created_at' => $now, 'updated_at' => $now]);
+        $row = fn (array $a) => DB::table('subscriptions')->insertGetId(array_merge([
+            'client_id' => $client->id, 'name' => 'svc', 'type' => 'hosting', 'selling_price' => 100, 'cost_price' => 0, 'currency' => 'USD',
+            'billing_cycle' => 'annual', 'start_date' => '2026-01-01', 'expiry_date' => '2027-01-01', 'status' => 'active', 'created_at' => $now, 'updated_at' => $now,
+        ], $a));
+        $biennial = $row(['name' => 'Domain 2y', 'type' => 'domain', 'billing_cycle' => 'biennial', 'selling_price' => 150, 'expiry_date' => '2028-01-01']);
+        $shared = $row(['name' => 'Shared host', 'server_id' => $serverId]);
+        $direct = $row(['name' => 'Bought licence', 'type' => 'license', 'cost_price' => 40]);
+        $unclear = $row(['name' => 'Odd', 'server_id' => $serverId, 'cost_price' => 10]);
+
+        $this->artisan('finance:backfill')->assertSuccessful();
+
+        $period = \App\Models\ServicePeriod::where('subscription_id', $biennial)->sole();
+        $this->assertSame(['year', 2, '150.00'], [$period->billing_unit, $period->billing_count, (string) $period->price]); // not 300
+        $this->assertSame(4, \App\Models\ServicePeriod::count());
+        $basis = \App\Models\Subscription::pluck('cost_basis', 'id');
+        $this->assertSame('shared_infrastructure', $basis[$shared]);
+        $this->assertSame('direct_purchase', $basis[$direct]);
+        $this->assertSame('unknown', $basis[$unclear]);
+        $this->assertSame(0, \App\Models\Subscription::whereNotNull('project_id')->count()); // suggested, never linked
+
+        $this->artisan('finance:backfill')->assertSuccessful();
+        $this->assertSame(4, \App\Models\ServicePeriod::count());
+    }
+
     public function test_dashboard_shows_unmigrated_servers_until_backfill_without_double_counting(): void
     {
         $this->actingAs(\App\Models\User::factory()->create());

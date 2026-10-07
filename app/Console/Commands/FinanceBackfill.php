@@ -5,11 +5,15 @@ namespace App\Console\Commands;
 use App\Models\Expense;
 use App\Models\ExpenseSchedule;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Models\Payment;
+use App\Models\Project;
 use App\Models\Server;
 use App\Models\Subscription;
 use App\Services\ExpenseService;
+use App\Services\InvoiceService;
 use App\Services\PaymentService;
+use App\Services\ServicePeriodService;
 use App\Support\Decimal;
 use App\Support\Money;
 use Illuminate\Console\Command;
@@ -31,7 +35,7 @@ class FinanceBackfill extends Command
 
     protected $description = 'Import existing invoices, servers and expenses into the payments / expense-schedule ledger (idempotent)';
 
-    public function handle(ExpenseService $expenses, PaymentService $payments): int
+    public function handle(ExpenseService $expenses, PaymentService $payments, ServicePeriodService $periods): int
     {
         $dry = (bool) $this->option('dry-run');
         $this->info($dry ? '— DRY RUN: هیچ شتێک ناگۆڕدرێت —' : '— Applying backfill —');
@@ -78,6 +82,49 @@ class FinanceBackfill extends Command
             }
         }
 
+        // 3b. Services -> their current period (price kept as stored: a biennial price is the 2-year price)
+        $withoutPeriod = Subscription::whereDoesntHave('periods')->whereNotNull('start_date')->whereNotNull('expiry_date')->get();
+        $odd = $withoutPeriod->filter(fn ($s) => ServicePeriodService::importPlan($s)['notes'] !== null);
+        $this->line("Services without a period history (current period imported): {$withoutPeriod->count()} (length differs from billing cycle: {$odd->count()})");
+        foreach ($odd as $s) {
+            $review[] = ['type' => 'service_period_length', 'subscription_id' => $s->id, 'name' => $s->name, 'start' => $s->start_date?->toDateString(), 'expiry' => $s->expiry_date?->toDateString(), 'billing_cycle' => $s->billing_cycle];
+        }
+        if (! $dry) {
+            $withoutPeriod->each(fn ($s) => $periods->importCurrent($s));
+        }
+
+        // 3c. cost_basis, only where the old data is unambiguous
+        $unknown = Subscription::where('cost_basis', 'unknown')->get();
+        $shared = $unknown->filter(fn ($s) => $s->server_id && Decimal::of($s->cost_price)->isZero());
+        $direct = $unknown->filter(fn ($s) => ! $s->server_id && Decimal::of($s->cost_price)->isGreaterThan(0));
+        $conflict = $unknown->filter(fn ($s) => $s->server_id && Decimal::of($s->cost_price)->isGreaterThan(0));
+        $this->line("Cost basis: shared VPS {$shared->count()} · direct purchase {$direct->count()} · unclear (VPS + own price, left unknown) {$conflict->count()}");
+        foreach ($conflict as $s) {
+            $review[] = ['type' => 'cost_basis_unclear', 'subscription_id' => $s->id, 'name' => $s->name, 'cost_price' => (string) $s->cost_price];
+        }
+        if (! $dry) {
+            Subscription::whereKey($shared->modelKeys())->update(['cost_basis' => 'shared_infrastructure']);
+            Subscription::whereKey($direct->modelKeys())->update(['cost_basis' => 'direct_purchase']);
+        }
+
+        // 3d. Issued invoices keep the client details as of now, so later renames do not rewrite them.
+        $noSnapshot = Invoice::whereNotIn('status', ['draft'])->whereNull('client_snapshot')->with('client')->get();
+        $this->line("Issued invoices without a client snapshot (captured now): {$noSnapshot->count()}");
+        if (! $dry) {
+            $noSnapshot->each(fn ($inv) => $inv->forceFill(['client_snapshot' => InvoiceService::clientSnapshot($inv->client) + ['captured_at' => now()->toDateString()]])->saveQuietly());
+        }
+
+        // 3e. Project links are suggested, never guessed.
+        $candidates = Subscription::whereNull('project_id')->get()->filter(function ($s) {
+            return Project::active()->where('client_id', $s->client_id)->count() === 1;
+        });
+        $this->line("Services that could belong to their client's only project (report only): {$candidates->count()}");
+        foreach ($candidates as $s) {
+            $review[] = ['type' => 'project_link_candidate', 'subscription_id' => $s->id, 'name' => $s->name, 'project_id' => Project::active()->where('client_id', $s->client_id)->value('id')];
+        }
+        $undatedItems = InvoiceItem::whereIn('billing_cycle', ['monthly', 'annual'])->where(fn ($q) => $q->whereNull('start_date')->orWhereNull('expiry_date'))->count();
+        $this->line("Recurring invoice lines without a period (report only): {$undatedItems}");
+
         // 4. Report-only checks: nothing is changed for these.
         $dupes = $this->duplicateVpsCandidates();
         $this->line("Possible duplicate VPS expenses (report only, nothing deleted): " . count($dupes));
@@ -115,6 +162,7 @@ class FinanceBackfill extends Command
             ['payments (net)', $before['payments'], $after['payments']],
             ['expenses (rows / posted sum)', $before['expenses'], $after['expenses']],
             ['expense schedules', $before['schedules'], $after['schedules']],
+            ['service periods', $before['service_periods'], $after['service_periods']],
         ]);
 
         $failures = 0;
@@ -159,6 +207,7 @@ class FinanceBackfill extends Command
             'payments' => Payment::count() . ' / ' . $fmt(Money::totals(Payment::get(['amount', 'currency']), fn ($p) => $p->amount, fn ($p) => $p->currency)),
             'expenses' => Expense::count() . ' / ' . $fmt(Money::totals(Expense::posted()->get(['amount', 'currency']), fn ($e) => $e->amount, fn ($e) => $e->currency)),
             'schedules' => ExpenseSchedule::count(),
+            'service_periods' => \App\Models\ServicePeriod::count(),
         ];
     }
 

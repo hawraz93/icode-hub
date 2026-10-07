@@ -6,6 +6,7 @@ use App\Livewire\Admin\Dashboard;
 use App\Livewire\Admin\ExpensesManager;
 use App\Livewire\Admin\InvoicesManager;
 use App\Livewire\Admin\ProfileManager;
+use App\Livewire\Admin\ProjectShow;
 use App\Livewire\Admin\ProjectsManager;
 use App\Livewire\Admin\QuickAdd;
 use App\Livewire\Admin\RenewalRadar;
@@ -54,6 +55,7 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::get('/invoices', InvoicesManager::class)->name('invoices');
     Route::get('/contracts', ContractsManager::class)->name('contracts');
     Route::get('/projects', ProjectsManager::class)->name('projects');
+    Route::get('/projects/{project}', ProjectShow::class)->name('projects.show');
     Route::get('/profile', ProfileManager::class)->name('profile');
 });
 

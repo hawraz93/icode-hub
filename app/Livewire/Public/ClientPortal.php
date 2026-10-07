@@ -165,7 +165,7 @@ class ClientPortal extends Component
         $client = $this->client;
 
         $invoice = $client && $this->selectedInvoiceId
-            ? $client->invoices()->where('status', '!=', 'draft')->with(['items', 'payments'])->find($this->selectedInvoiceId)
+            ? $client->invoices()->where('status', '!=', 'draft')->with(['items', 'payments', 'project'])->find($this->selectedInvoiceId)
             : null;
         $contract = $client && $this->selectedContractId
             ? $client->contracts()->where('status', '!=', 'draft')->find($this->selectedContractId)

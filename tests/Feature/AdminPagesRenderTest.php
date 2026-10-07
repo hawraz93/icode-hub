@@ -40,6 +40,12 @@ class AdminPagesRenderTest extends TestCase
         $this->get(route('admin.clients'))->assertOk()->assertSee('کۆدی کۆن');
         $this->get(route('admin.servers'))->assertOk()->assertSee('پارەدرا');
         $this->get(route('admin.renewals'))->assertOk();
+        $project = \App\Models\Project::create(['client_id' => $client->id, 'title' => 'Render project', 'slug' => 'render-project']);
+        $this->get(route('admin.projects'))->assertOk()->assertSee('Render project')->assertSee('ناوخۆیی');
+        $this->get(route('admin.projects.show', $project))->assertOk()->assertSee('+ دروستکردنی وەسڵ');
+        $this->get(route('admin.subscriptions'))->assertOk()->assertSee('render.com');
+        $this->get(route('admin.invoices', ['new' => 1, 'project' => $project->id]))->assertOk()->assertSee('Render project');
+        $this->get(route('admin.contracts'))->assertOk();
 
         auth()->logout();
         $this->get(route('client.portal'))->assertOk()->assertDontSee('ژمارەی مۆبایل');

@@ -93,6 +93,11 @@ class ContractsManager extends Component
     public function save(): void
     {
         $validated = $this->validate();
+        if ($validated['project_id'] && (int) Project::whereKey($validated['project_id'])->value('client_id') !== (int) $validated['client_id']) {
+            $this->addError('project_id', 'ئەم پڕۆژەیە هی ئەم کڕیارە نییە.');
+
+            return;
+        }
         $validated['signed_at'] = $this->signed_by_client ? Carbon::now() : null;
 
         if ($this->editingId) {
@@ -186,7 +191,7 @@ class ContractsManager extends Component
             ->paginate(10);
 
         $clients = Client::where('status', 'active')->orderBy('name')->get();
-        $projects = Project::orderBy('title')->get();
+        $projects = $this->client_id ? Project::active()->where('client_id', $this->client_id)->orderBy('title')->get() : Project::active()->whereNotNull('client_id')->orderBy('title')->get();
 
         return view('livewire.admin.contracts-manager', [
             'contracts' => $contracts,

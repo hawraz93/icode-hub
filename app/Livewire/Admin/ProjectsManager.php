@@ -16,6 +16,7 @@ class ProjectsManager extends Component
 
     public string $search = '';
     public string $categoryFilter = 'all';
+    public string $viewFilter = 'active'; // active, client, portfolio, archived
 
     public bool $showModal = false;
     public ?int $editingId = null;
@@ -33,7 +34,11 @@ class ProjectsManager extends Component
     public string $live_url = '';
     public string $github_url = '';
     public string $status = 'completed';
-    public bool $is_featured = true;
+    public bool $is_featured = false;
+    public bool $is_public = false; // portfolio publication, separate from work status
+    public ?string $start_date = null;
+    public ?string $completion_date = null;
+    public string $internal_notes = '';
     public string $features_text = '';
     public string $tech_stack_text = '';
 
@@ -53,6 +58,10 @@ class ProjectsManager extends Component
             'github_url' => 'nullable|url|max:255',
             'status' => 'required|in:completed,in_progress,maintenance,planned',
             'is_featured' => 'boolean',
+            'is_public' => 'boolean',
+            'start_date' => 'nullable|date',
+            'completion_date' => 'nullable|date|after_or_equal:start_date',
+            'internal_notes' => 'nullable|string',
             'features_text' => 'nullable|string',
             'tech_stack_text' => 'nullable|string',
         ];
@@ -91,6 +100,10 @@ class ProjectsManager extends Component
         $this->github_url = $proj->github_url ?? '';
         $this->status = $proj->status;
         $this->is_featured = (bool) $proj->is_featured;
+        $this->is_public = (bool) $proj->is_public;
+        $this->start_date = $proj->start_date?->format('Y-m-d');
+        $this->completion_date = $proj->completion_date?->format('Y-m-d');
+        $this->internal_notes = $proj->internal_notes ?? '';
         $this->features_text = is_array($proj->features) ? implode("\n", $proj->features) : '';
         $this->tech_stack_text = is_array($proj->tech_stack) ? implode(', ', $proj->tech_stack) : '';
 
@@ -120,6 +133,10 @@ class ProjectsManager extends Component
             'github_url' => $this->github_url,
             'status' => $this->status,
             'is_featured' => $this->is_featured,
+            'is_public' => $this->is_public,
+            'start_date' => $this->start_date ?: null,
+            'completion_date' => $this->completion_date ?: null,
+            'internal_notes' => $this->internal_notes ?: null,
         ];
 
         if ($this->editingId) {
@@ -146,13 +163,34 @@ class ProjectsManager extends Component
     public function delete(int $id): void
     {
         $proj = Project::findOrFail($id);
-        $proj->delete();
+        if ($proj->has_financial_history) {
+            // Invoices, contracts and services keep pointing at it: archive, never hard delete.
+            $proj->update(['archived_at' => now(), 'is_public' => false]);
+            $this->notification()->send([
+                'icon' => 'info',
+                'title' => 'ئەرشیف کرا',
+                'description' => 'ئەم پڕۆژەیە مێژووی دارایی هەیە، بۆیە نەسڕایەوە و ئەرشیف کرا.',
+            ]);
 
+            return;
+        }
+
+        $proj->delete();
         $this->notification()->send([
             'icon' => 'info',
             'title' => 'سڕایەوە',
             'description' => 'پڕۆژە بە سەرکەوتوویی سڕایەوە.',
         ]);
+    }
+
+    public function archive(int $id): void
+    {
+        Project::findOrFail($id)->update(['archived_at' => now(), 'is_public' => false]);
+    }
+
+    public function unarchive(int $id): void
+    {
+        Project::findOrFail($id)->update(['archived_at' => null]);
     }
 
     private function resetForm(): void
@@ -170,7 +208,11 @@ class ProjectsManager extends Component
         $this->live_url = '';
         $this->github_url = '';
         $this->status = 'completed';
-        $this->is_featured = true;
+        $this->is_featured = false;
+        $this->is_public = false;
+        $this->start_date = null;
+        $this->completion_date = null;
+        $this->internal_notes = '';
         $this->features_text = '';
         $this->tech_stack_text = 'Laravel 12, Livewire 3, Tailwind CSS, MySQL';
     }
@@ -179,10 +221,13 @@ class ProjectsManager extends Component
     {
         $projects = Project::with('client')
             ->when($this->search, function ($q) {
-                $q->where('title', 'like', "%{$this->search}%")
-                  ->orWhere('summary', 'like', "%{$this->search}%");
+                $q->where(fn ($w) => $w->where('title', 'like', "%{$this->search}%")
+                  ->orWhere('summary', 'like', "%{$this->search}%"));
             })
             ->when($this->categoryFilter !== 'all', fn($q) => $q->where('category', $this->categoryFilter))
+            ->when($this->viewFilter === 'archived', fn ($q) => $q->whereNotNull('archived_at'), fn ($q) => $q->whereNull('archived_at'))
+            ->when($this->viewFilter === 'client', fn ($q) => $q->whereNotNull('client_id'))
+            ->when($this->viewFilter === 'portfolio', fn ($q) => $q->where('is_public', true))
             ->orderBy('order_index')
             ->paginate(9);
 

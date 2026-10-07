@@ -183,48 +183,7 @@
         @if($selectedInvoice)
             <x-modal wire:model="showInvoiceModal" max-width="3xl">
                 <x-card>
-                    <div class="bg-white p-6 rounded-2xl text-slate-900 space-y-6">
-                        <div class="flex justify-between items-center border-b pb-4">
-                            <img src="{{ asset('images/logo.png') }}" alt="iCode" class="h-12 w-auto">
-                            <div class="text-end">
-                                <div class="font-mono font-bold text-indigo-600 text-sm" dir="ltr">{{ $selectedInvoice->invoice_number }}</div>
-                                <div class="text-xs text-slate-500">{{ $selectedInvoice->issue_date->format('Y-m-d') }}</div>
-                            </div>
-                        </div>
-
-                        <div class="space-y-2 text-xs">
-                            @foreach($selectedInvoice->items as $item)
-                                <div class="flex justify-between p-2 bg-slate-50 rounded-lg">
-                                    <span>{{ $item->description }}
-                                        @if($item->start_date && $item->expiry_date)
-                                            <span class="block text-[11px] text-slate-500" dir="ltr">{{ $item->start_date->format('Y-m-d') }} → {{ $item->expiry_date->format('Y-m-d') }}</span>
-                                        @endif
-                                    </span>
-                                    <span class="font-mono font-bold" dir="ltr">{{ \App\Support\Money::format((float) $item->total_price, $selectedInvoice->currency) }}</span>
-                                </div>
-                            @endforeach
-                        </div>
-
-                        <div class="flex justify-between text-base font-black border-t pt-3">
-                            <span>کۆی گشتی:</span>
-                            <span class="font-mono text-indigo-600" dir="ltr">{{ \App\Support\Money::format((float) $selectedInvoice->total, $selectedInvoice->currency) }}</span>
-                        </div>
-                        @if($selectedInvoice->payments->isNotEmpty())
-                            <div class="space-y-1 text-xs">
-                                <div class="font-bold text-slate-600">پارەدانەکان</div>
-                                @foreach($selectedInvoice->payments as $payment)
-                                    <div class="flex justify-between">
-                                        <span class="font-mono text-slate-500" dir="ltr">{{ $payment->paid_on?->format('Y-m-d') ?? '—' }}</span>
-                                        <span class="font-mono font-bold {{ $payment->amount < 0 ? 'text-rose-600' : 'text-emerald-700' }}" dir="ltr">{{ \App\Support\Money::format((float) $payment->amount, $payment->currency) }}</span>
-                                    </div>
-                                @endforeach
-                            </div>
-                        @endif
-                        <div class="flex justify-between text-sm font-bold">
-                            <span>ماوە:</span>
-                            <span class="font-mono {{ $selectedInvoice->remaining_balance > 0 ? 'text-amber-600' : 'text-emerald-600' }}" dir="ltr">{{ \App\Support\Money::format(max(0, $selectedInvoice->remaining_balance), $selectedInvoice->currency) }}</span>
-                        </div>
-                    </div>
+                    @include('partials.invoice-document', ['invoice' => $selectedInvoice, 'showPayments' => true])
 
                     <x-slot name="footer">
                         <div class="flex items-center justify-between w-full">

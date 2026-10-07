@@ -4,10 +4,12 @@ namespace App\Livewire\Admin;
 
 use App\Models\Client;
 use App\Models\Invoice;
+use App\Models\Project;
 use App\Models\InvoiceItem;
 use App\Models\Server;
 use App\Models\Subscription;
 use App\Support\Money;
+use App\Support\Period;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Url;
@@ -31,7 +33,9 @@ class SubscriptionsManager extends Component
     public ?int $editingId = null;
 
     public ?int $client_id = null;
+    public ?int $project_id = null;
     public ?int $server_id = null;
+    public string $cost_basis = 'unknown';
     public string $name = '';
     public string $type = 'hosting';
     public string $domain_name = '';
@@ -59,7 +63,9 @@ class SubscriptionsManager extends Component
     {
         return [
             'client_id' => 'required|exists:clients,id',
+            'project_id' => 'nullable|exists:projects,id',
             'server_id' => 'nullable|exists:servers,id',
+            'cost_basis' => 'required|in:' . implode(',', array_keys(Subscription::COST_BASES)),
             'name' => 'required|string|max:255',
             'type' => 'required|string|max:50',
             'domain_name' => 'nullable|string|max:255',
@@ -170,14 +176,9 @@ class SubscriptionsManager extends Component
         }
 
         try {
-            $start = Carbon::parse($this->start_date);
-            $this->expiry_date = match ($this->billing_cycle) {
-                'monthly' => $start->copy()->addMonth()->format('Y-m-d'),
-                'quarterly' => $start->copy()->addMonths(3)->format('Y-m-d'),
-                'semi_annual' => $start->copy()->addMonths(6)->format('Y-m-d'),
-                'biennial' => $start->copy()->addYears(2)->format('Y-m-d'),
-                default => $start->copy()->addYear()->format('Y-m-d'),
-            };
+            // No overflow: Jan 31 + 1 month = Feb 28/29.
+            [$unit, $count] = Period::fromLegacyCycle($this->billing_cycle);
+            $this->expiry_date = Period::add($this->start_date, $unit, $count)->format('Y-m-d');
         } catch (\Exception $e) {
             // Keep existing date
         }
@@ -244,7 +245,9 @@ class SubscriptionsManager extends Component
         $sub = Subscription::findOrFail($id);
         $this->editingId = $sub->id;
         $this->client_id = $sub->client_id;
+        $this->project_id = $sub->project_id;
         $this->server_id = $sub->server_id;
+        $this->cost_basis = $sub->cost_basis ?: 'unknown';
         $this->name = $sub->name;
         $this->type = $sub->type;
         $this->domain_name = $sub->domain_name ?? '';
@@ -264,9 +267,35 @@ class SubscriptionsManager extends Component
         $this->showModal = true;
     }
 
+    public function updatedClientId(): void
+    {
+        $this->project_id = null; // a project must belong to the same client
+    }
+
+    public function updatedCostBasis(): void
+    {
+        if ($this->cost_basis === 'shared_infrastructure') {
+            $this->cost_price = 0; // its cost is the shared VPS plan, counted once in expenses
+        }
+    }
+
     public function save(): void
     {
         $validated = $this->validate();
+
+        if ($validated['project_id'] && (int) Project::whereKey($validated['project_id'])->value('client_id') !== (int) $validated['client_id']) {
+            $this->addError('project_id', 'ئەم پڕۆژەیە هی ئەم کڕیارە نییە.');
+
+            return;
+        }
+        if ($validated['cost_basis'] === 'shared_infrastructure') {
+            if (! $validated['server_id']) {
+                $this->addError('server_id', 'بۆ هۆستی سەر VPSی خۆمان، VPSی میواندار هەڵبژێرە.');
+
+                return;
+            }
+            $validated['cost_price'] = 0; // no per-client purchase price for shared hosting
+        }
 
         if ($this->editingId) {
             $sub = Subscription::findOrFail($this->editingId);
@@ -436,6 +465,8 @@ class SubscriptionsManager extends Component
 
     private function resetForm(): void
     {
+        $this->project_id = null;
+        $this->cost_basis = 'unknown';
         $this->editingId = null;
         $this->client_id = null;
         $defaultServer = Server::where('status', 'active')->first();
@@ -505,8 +536,11 @@ class SubscriptionsManager extends Component
 
         $clients = Client::where('status', 'active')->orderBy('name')->get();
         $servers = Server::where('status', 'active')->orderBy('name')->get();
+        $projects = $this->client_id ? Project::active()->where('client_id', $this->client_id)->orderBy('title')->get() : collect();
 
         return view('livewire.admin.subscriptions-manager', [
+            'projects' => $projects,
+            'costBases' => Subscription::COST_BASES,
             'subscriptions' => $subscriptions,
             'clients' => $clients,
             'servers' => $servers,

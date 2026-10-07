@@ -210,7 +210,7 @@
                     <x-select
                         label="کڕیار *"
                         placeholder="کڕیار هەڵبژێرە"
-                        wire:model="client_id"
+                        wire:model.live="client_id"
                         :options="$clients"
                         option-label="displayName"
                         option-value="id"
@@ -261,10 +261,27 @@
                 </div>
             </div>
 
-            <x-native-select label="دراوی وەسڵ" wire:model.live="currency">
-                <option value="USD">USD</option><option value="IQD">IQD</option>
-            </x-native-select>
-<p class="text-sm text-slate-600">دروستکردن بڕگەیەکی یەکجارەیە. بۆ هۆستی دوو ساڵ: ماوە ساڵانە، ژمارە ٢، و نرخی ساڵێک بنووسە. کۆی نرخ = نرخی ساڵانە × ٢. بەرواری پارەدان جیاوازە لە بەسەرچوونی هۆست.</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <x-native-select label="دراوی وەسڵ" wire:model.live="currency">
+                    <option value="USD">USD — دۆلار</option><option value="IQD">IQD — دینار</option>
+                </x-native-select>
+                <x-native-select label="پڕۆژە" wire:model="project_id" :disabled="! $client_id">
+                    <option value="">— بێ پڕۆژە —</option>
+                    @foreach($projects as $project)
+                        <option value="{{ $project->id }}">{{ $project->title }}</option>
+                    @endforeach
+                </x-native-select>
+                <x-native-select label="گرێبەست" wire:model="contract_id" :disabled="! $client_id">
+                    <option value="">— بێ گرێبەست —</option>
+                    @foreach($contracts as $contract)
+                        <option value="{{ $contract->id }}">{{ $contract->contract_number }} · {{ $contract->title }}</option>
+                    @endforeach
+                </x-native-select>
+            </div>
+            <p class="text-xs text-slate-600 bg-slate-50 rounded-xl p-3">
+                دروستکردن بڕگەیەکی یەکجارەیە. بۆ هۆستی دوو ساڵ: «نرخ بۆ ساڵێک»، ژمارەی ساڵ ٢، و نرخی ساڵێک بنووسە؛ کۆ = نرخ × ٢ و بەسەرچوون خۆکار حساب دەکرێت.
+                بەرواری پارەدانی وەسڵ جیاوازە لە بەسەرچوونی هۆست. تەنها پڕۆژە، گرێبەست و خزمەتگوزارییەکانی ئەم کڕیارە دەردەکەون.
+            </p>
             <!-- Dynamic Items Table -->
             <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
                 <div class="flex items-center justify-between">
@@ -278,30 +295,54 @@
                     @foreach($items as $index => $item)
                         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center bg-white p-3 rounded-xl border border-slate-200">
                             <div class="md:col-span-12 grid grid-cols-1 md:grid-cols-4 gap-3">
-                                <x-native-select label="جۆری خزمەتگوزاری" wire:model="items.{{ $index }}.service_type">
-                                    @foreach(['development' => 'دروستکردنی وێبسایت / سیستەم', 'hosting' => 'هۆست', 'domain' => 'دۆمەین', 'vps' => 'VPS', 'email' => 'ئیمەیڵ', 'maintenance' => 'چاککردنەوە', 'license' => 'لایسەنس', 'other' => 'هی تر'] as $type => $label)
+                                @php $recurring = ($item['billing_cycle'] ?? 'one_time') !== 'one_time'; @endphp
+                                <x-native-select label="جۆری خزمەتگوزاری" wire:model.live="items.{{ $index }}.service_type">
+                                    @foreach(\App\Models\InvoiceItem::SERVICE_TYPES as $type => $label)
                                         <option value="{{ $type }}">{{ $label }}</option>
                                     @endforeach
                                 </x-native-select>
                                 <x-native-select label="نرخ بۆ" wire:model.live="items.{{ $index }}.billing_cycle">
                                     <option value="one_time">یەکجار</option><option value="monthly">مانگێک</option><option value="annual">ساڵێک</option>
                                 </x-native-select>
-                                @if(($item['billing_cycle'] ?? 'one_time') !== 'one_time')
-                                    <x-input type="date" label="ڕۆژی دەستپێک" wire:model.live="items.{{ $index }}.start_date" />
-                                    <x-input type="date" label="ڕۆژی بەسەرچوون" wire:model="items.{{ $index }}.expiry_date" />
+                                @if($recurring)
+                                    <x-input type="date" label="ڕۆژی دەستپێک *" wire:model.live="items.{{ $index }}.start_date" />
+                                    <x-input type="date" label="ڕۆژی بەسەرچوون" wire:model="items.{{ $index }}.expiry_date" :readonly="empty($item['custom_period'])"
+                                        hint="{{ empty($item['custom_period']) ? 'خۆکار: دەستپێک + ماوە' : 'ماوەی دەستی' }}" />
                                 @endif
                             </div>
+                            @if($recurring)
+                                <div class="md:col-span-12 grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 rounded-lg p-2">
+                                    <x-native-select label="خزمەتگوزاریی کڕیار" wire:model.live="items.{{ $index }}.subscription_id" :disabled="! $client_id">
+                                        <option value="">— نوێ / بەبێ بەستنەوە —</option>
+                                        @foreach($services as $service)
+                                            <option value="{{ $service->id }}">{{ $service->domain_name ?: $service->name }} ({{ $service->expiry_date?->format('Y-m-d') }})</option>
+                                        @endforeach
+                                    </x-native-select>
+                                    @if(empty($item['subscription_id']) && in_array($item['service_type'] ?? '', \App\Services\InvoiceService::SERVICE_TYPES, true))
+                                        <x-checkbox label="لەم بڕگەیەوە خزمەتگوزاری دروست بکە (بۆ نوێکردنەوە و ئاگادارکردنەوە)" wire:model="items.{{ $index }}.create_service" />
+                                    @else
+                                        <div></div>
+                                    @endif
+                                    <div class="space-y-2">
+                                        <x-checkbox label="ماوەی دەستی (جیاواز لە دەستپێک + ماوە)" wire:model.live="items.{{ $index }}.custom_period" />
+                                        @if(! empty($item['custom_period']))
+                                            <x-input placeholder="هۆکاری ماوەی دەستی *" wire:model="items.{{ $index }}.period_note" />
+                                        @endif
+                                    </div>
+                                </div>
+                            @endif
                             <div class="md:col-span-6">
                                 <x-input label="وەسف / خزمەتگوزاری" placeholder="پەرەپێدان، نوێکردنەوەی دۆمەین، هۆستینگ..." wire:model="items.{{ $index }}.description" />
                             </div>
 
                             <div class="md:col-span-2">
-                                <x-input label="ژمارە / مانگ / ساڵ" type="number" step="1" min="1" wire:model.live="items.{{ $index }}.quantity" />
+                                <x-input label="{{ match($item['billing_cycle'] ?? 'one_time') { 'annual' => 'ژمارەی ساڵ', 'monthly' => 'ژمارەی مانگ', default => 'ژمارە' } }}"
+                                    type="number" step="{{ $recurring ? 1 : 'any' }}" min="1" wire:model.live="items.{{ $index }}.quantity" />
                             </div>
 
                             <div class="md:col-span-3">
                                 <x-input type="number" step="any" min="0" inputmode="decimal"
-                                    label="نرخی تاک / ماوە ({{ $currency }})"
+                                    label="{{ match($item['billing_cycle'] ?? 'one_time') { 'annual' => 'نرخی ساڵێک', 'monthly' => 'نرخی مانگێک', default => 'نرخی تاک' } }} ({{ $currency }})"
                                     placeholder="0"
                                     prefix="{{ $currency }}"
                                     wire:model="items.{{ $index }}.unit_price"
@@ -355,116 +396,9 @@
     @if($viewingInvoice)
         <x-modal-card title="وەسڵی فەرمی (چاپکردن)" wire:model="showViewModal" max-width="4xl">
             <!-- Printable Invoice Box -->
-            <div id="invoice-print-area" class="bg-white p-6 sm:p-8 rounded-2xl text-slate-900 space-y-6">
-                
-                <!-- Invoice Header -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pb-6 border-b-2 border-slate-100">
-                    <div class="flex items-center gap-4">
-                        <img src="{{ asset('images/logo.png') }}" alt="iCode Group" class="h-16 w-auto object-contain">
-                        <div>
-                            <h2 class="text-2xl font-black text-slate-900 tracking-tight">iCode Group</h2>
-                            <p class="text-xs text-slate-500 font-medium">Software Development & IT Solutions</p>
-                            <p class="text-xs text-slate-400 font-mono" dir="ltr">info@icode.com | 0750 445 1234</p>
-                        </div>
-                    </div>
-
-                    <div class="text-start sm:text-end">
-                        <div class="text-xs font-bold text-slate-400 uppercase tracking-widest">وەسڵی فەرمی / INVOICE</div>
-                        <div class="text-xl font-black font-mono text-indigo-600 mt-1" dir="ltr">{{ $viewingInvoice->invoice_number }}</div>
-                        <div class="text-xs text-slate-500 mt-1 font-mono">بەروار: {{ $viewingInvoice->issue_date->format('Y-m-d') }}</div>
-                        <div class="text-xs text-slate-500 font-mono">کۆتا کات: {{ $viewingInvoice->due_date->format('Y-m-d') }}</div>
-                    </div>
-                </div>
-
-                <!-- Client Details & Bill To -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-slate-50 p-4 rounded-xl text-xs">
-                    <div>
-                        <span class="font-bold text-slate-400 uppercase tracking-wider block mb-1">وەسڵ بۆ / Bill To:</span>
-                        <strong class="text-sm font-extrabold text-slate-900 block">{{ $viewingInvoice->client->business_name ?? $viewingInvoice->client->name }}</strong>
-                        <div class="text-slate-600 mt-1">{{ $viewingInvoice->client->name }}</div>
-                        <div class="text-slate-600 font-mono mt-0.5" dir="ltr">{{ $viewingInvoice->client->phone }}</div>
-                        <div class="text-slate-500 mt-0.5">{{ $viewingInvoice->client->city }} - {{ $viewingInvoice->client->address }}</div>
-                    </div>
-
-                    <div class="sm:text-end">
-                        <span class="font-bold text-slate-400 uppercase tracking-wider block mb-1">دۆخی وەسڵ / Status:</span>
-                        @include('livewire.admin.partials.invoice-status', ['invoice' => $viewingInvoice])
-                        <div class="text-slate-500 text-xs mt-2">شێوازی دان: {{ $viewingInvoice->payment_method ?? 'FIB / FastPay / کاش' }}</div>
-                    </div>
-                </div>
-
-                <!-- Items Table -->
-                <div class="overflow-x-auto">
-                    <table class="w-full text-xs text-start">
-                        <thead class="bg-slate-100/80 text-slate-700 font-bold border-y border-slate-200">
-                            <tr>
-                                <th class="p-3 text-start">#</th>
-                                <th class="p-3 text-start">وەسف و خزمەتگوزاری (Description)</th>
-                                <th class="p-3 text-center">ژمارە (Qty)</th>
-                                <th class="p-3 text-end">نرخی تاک (Unit Price)</th>
-                                <th class="p-3 text-end">کۆی بڕ (Total)</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            @foreach($viewingInvoice->items as $idx => $item)
-                                <tr>
-                                    <td class="p-3 font-mono text-slate-400">{{ $idx + 1 }}</td>
-                                    <td class="p-3 font-semibold text-slate-900">{{ $item->description }}
-                                        <div class="text-xs text-slate-500">{{ match($item->billing_cycle) { 'annual' => 'نرخی ساڵانە', 'monthly' => 'نرخی مانگانە', default => 'یەکجار' } }}</div>
-                                        @if($item->start_date && $item->expiry_date)
-                                            <div class="text-xs text-slate-500">دەستپێک: {{ $item->start_date->format('Y-m-d') }} — بەسەرچوون: {{ $item->expiry_date->format('Y-m-d') }}</div>
-                                        @endif
-                                    </td>
-                                    <td class="p-3 text-center font-mono font-bold">{{ $item->quantity }}</td>
-                                    <td class="p-3 text-end font-mono" dir="ltr">{{ \App\Support\Money::format((float) $item->unit_price, $viewingInvoice->currency) }}</td>
-                                    <td class="p-3 text-end font-mono font-extrabold text-slate-900" dir="ltr">{{ \App\Support\Money::format((float) $item->total_price, $viewingInvoice->currency) }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Summary Totals -->
-                <div class="flex flex-col sm:flex-row justify-between gap-6 pt-4 border-t-2 border-slate-100">
-                    <div class="text-xs text-slate-500 max-w-sm space-y-1">
-                        <strong class="text-slate-800 block mb-1">تێبینی و مەرجەکان:</strong>
-                        <p>{{ $viewingInvoice->terms ?? 'سوپاس بۆ متمانەکردنتان بە iCode Group.' }}</p>
-                        @if($viewingInvoice->notes)
-                            <p class="text-indigo-600 font-medium">{{ $viewingInvoice->notes }}</p>
-                        @endif
-                    </div>
-
-                    <div class="w-full sm:w-64 space-y-2 text-xs">
-                        <div class="flex justify-between text-slate-600">
-                            <span>کۆی سەرەتایی (Subtotal):</span>
-                            <span class="font-mono font-bold" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->subtotal, $viewingInvoice->currency) }}</span>
-                        </div>
-
-                        @if($viewingInvoice->discount > 0)
-                            <div class="flex justify-between text-rose-600">
-                                <span>داشکاندن (Discount):</span>
-                                <span class="font-mono font-bold" dir="ltr">{{ \App\Support\Money::format(-(float) $viewingInvoice->discount, $viewingInvoice->currency) }}</span>
-                            </div>
-                        @endif
-
-                        <div class="flex justify-between pt-2 border-t border-slate-200 text-sm font-black text-slate-900">
-                            <span>کۆی گشتی (Total):</span>
-                            <span class="font-mono font-black text-indigo-600" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->total, $viewingInvoice->currency) }}</span>
-                        </div>
-
-                        <div class="flex justify-between text-emerald-600 font-bold pt-1">
-                            <span>بڕی دراو (Paid):</span>
-                            <span class="font-mono" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->paid_amount, $viewingInvoice->currency) }}</span>
-                        </div>
-
-                        @if($viewingInvoice->remaining_balance > 0)
-                            <div class="flex justify-between text-amber-700 font-extrabold pt-1">
-                                <span>ماوە بۆ دان (Balance):</span>
-                                <span class="font-mono" dir="ltr">{{ \App\Support\Money::format((float) $viewingInvoice->remaining_balance, $viewingInvoice->currency) }}</span>
-                            </div>
-                        @endif
-                    </div>
-                </div>
+            <div id="invoice-print-area">
+                @include('partials.invoice-document', ['invoice' => $viewingInvoice])
+            </div>
 
                 <!-- Payment history (admin only, hidden when printing) -->
                 @if($viewingInvoice->payments->isNotEmpty())
@@ -493,18 +427,6 @@
                     </div>
                 @endif
 
-                <!-- Payment Accounts / Bank Details -->
-                <div class="p-4 bg-slate-900 text-white rounded-xl text-xs flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div>
-                        <span class="text-slate-400 block text-[11px]">شێوازی پارەدان و هەژمارەکان:</span>
-                        <span class="font-mono text-cyan-400 font-bold">FIB Account / FastPay: 0750 445 1234</span>
-                    </div>
-                    <div class="text-start sm:text-end text-[11px] text-slate-400 font-mono">
-                        iCode Group | Hawraz Khaled
-                    </div>
-                </div>
-
-            </div>
 
             <x-slot name="footer">
                 <div class="flex items-center justify-between w-full">

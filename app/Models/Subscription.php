@@ -16,12 +16,14 @@ class Subscription extends Model
 
     protected $fillable = [
         'client_id',
+        'project_id',
         'server_id',
         'name',
         'type',
         'domain_name',
         'provider',
         'cost_price',
+        'cost_basis',
         'selling_price',
         'currency',
         'billing_cycle',
@@ -55,6 +57,47 @@ class Subscription extends Model
         'is_paid' => 'boolean',
         'paid_at' => 'datetime',
     ];
+
+    /** How the cost of a service is known. cost_price = 0 never means "100% profit". */
+    public const COST_BASES = [
+        'shared_infrastructure' => 'لەسەر VPSی خۆمان (خەرجی هاوبەش)',
+        'direct_purchase' => 'کڕینی ڕاستەوخۆ بۆ ئەم کڕیارە',
+        'unknown' => 'تێچوو نەزانراوە',
+    ];
+
+    /**
+     * Keep the service-period history in step with edits made on the service itself
+     * (creating a service, correcting its dates). Renewals add periods explicitly.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (self $sub) {
+            if (! \App\Services\ServicePeriodService::$syncPaused) {
+                app(\App\Services\ServicePeriodService::class)->syncCurrent($sub);
+            }
+        });
+    }
+
+    public function project(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+
+    public function periods(): HasMany
+    {
+        return $this->hasMany(ServicePeriod::class)->orderBy('starts_on');
+    }
+
+    /** The period that matches the service's current dates (latest non-cancelled). */
+    public function currentPeriod(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ServicePeriod::class)->where('status', 'active')->latestOfMany('starts_on');
+    }
+
+    public function getCostBasisLabelAttribute(): string
+    {
+        return self::COST_BASES[$this->cost_basis] ?? self::COST_BASES['unknown'];
+    }
 
     public const STAGE_NONE = 0;
     public const STAGE_NOTIFIED = 1;
@@ -99,20 +142,30 @@ class Subscription extends Model
         $newExpiry = $this->renewalCycleEnd($baseDate);
         if ($newExpiry->isPast()) {
             // Long-lapsed domain: effectively a new registration from today.
-            $newExpiry = $this->renewalCycleEnd(Carbon::now());
+            $baseDate = Carbon::now();
+            $newExpiry = $this->renewalCycleEnd($baseDate);
         }
 
         $paid = $this->renewal_stage >= self::STAGE_PAID;
 
-        $this->update([
-            'expiry_date' => $newExpiry->format('Y-m-d'),
-            'status' => 'active',
-            'is_paid' => $paid,
-            'paid_at' => $paid ? now() : null,
-            'renewal_stage' => self::STAGE_NONE,
-            'stage_updated_at' => now(),
-            'last_reminded_at' => null,
-        ]);
+        // The old period stays in the history; the new one starts where this renewal starts.
+        $periods = app(\App\Services\ServicePeriodService::class);
+        $periods->recordRenewal($this, $baseDate->copy()->startOfDay(), $newExpiry->copy()->startOfDay());
+
+        \App\Services\ServicePeriodService::$syncPaused = true;
+        try {
+            $this->update([
+                'expiry_date' => $newExpiry->format('Y-m-d'),
+                'status' => 'active',
+                'is_paid' => $paid,
+                'paid_at' => $paid ? now() : null,
+                'renewal_stage' => self::STAGE_NONE,
+                'stage_updated_at' => now(),
+                'last_reminded_at' => null,
+            ]);
+        } finally {
+            \App\Services\ServicePeriodService::$syncPaused = false;
+        }
 
         ActivityReminder::create([
             'client_id' => $this->client_id,
@@ -167,9 +220,9 @@ class Subscription extends Model
      */
     public function bill(float $amount, Carbon $dueDate, string $description, ?string $notes = null): Invoice
     {
-        $invoice = Invoice::create([
-            'invoice_number' => Invoice::generateNextInvoiceNumber(),
+        $invoice = Invoice::createNumbered([
             'client_id' => $this->client_id,
+            'project_id' => $this->project_id,
             'subscription_id' => $this->id,
             'issue_date' => Carbon::now(),
             'due_date' => $dueDate->toDateString(),

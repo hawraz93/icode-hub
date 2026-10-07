@@ -49,7 +49,19 @@ class Invoice extends Model
         'paid_amount' => 'decimal:2',
         'exchange_rate' => 'decimal:2',
         'paid_at' => 'datetime',
+        'client_snapshot' => 'array',
     ];
+
+    /**
+     * Client details as printed: the snapshot taken when the invoice was issued, so renaming a
+     * client later never silently changes an old invoice. Drafts show the live client.
+     *
+     * @return array<string, string|null>
+     */
+    public function getBillToAttribute(): array
+    {
+        return $this->client_snapshot ?: \App\Services\InvoiceService::clientSnapshot($this->client);
+    }
 
     public function client(): BelongsTo
     {
