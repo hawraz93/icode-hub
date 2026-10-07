@@ -226,7 +226,7 @@
                             </div>
                         </div>
                         <span class="font-mono text-[13px] font-bold text-slate-900" dir="ltr">{{ $money($srv->cost, $srv->currency) }}</span>
-                        <button type="button" wire:click="renewServer({{ $srv->id }})" wire:confirm="پارەی {{ $srv->name }} دراوە؟ بەرواری نوێکردنەوە درێژ دەکرێتەوە."
+                        <button type="button" wire:click="renewServer({{ $srv->id }}, '{{ $srv->renewal_date?->toDateString() }}')" wire:confirm="پارەی {{ $srv->name }} دراوە؟ بەرواری نوێکردنەوە درێژ دەکرێتەوە."
                                 class="flex-shrink-0 rounded-xl bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 text-xs font-bold px-3 py-2 transition cursor-pointer">دراوە</button>
                     </div>
                 @endforeach

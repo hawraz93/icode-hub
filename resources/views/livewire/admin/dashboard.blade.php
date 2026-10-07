@@ -15,24 +15,24 @@
     <!-- 2. Profit / income / expenses per currency -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="sm:col-span-2 lg:col-span-1 bg-linear-to-br from-emerald-600 to-teal-700 text-white rounded-2xl md:rounded-3xl p-5 shadow-sm space-y-2">
-            <div class="text-xs font-extrabold text-emerald-100" x-text="viewMode === 'annual' ? 'قازانجی ساڵانە' : 'قازانجی مانگانە'">قازانجی ساڵانە</div>
+            <div class="text-xs font-extrabold text-emerald-100" x-text="viewMode === 'annual' ? 'جیاوازی پێشبینی ساڵانە' : 'جیاوازی پێشبینی مانگانە'">جیاوازی پێشبینی ساڵانە</div>
             <x-money-lines x-show="viewMode === 'annual'" :totals="$annualProfit" class="text-2xl md:text-3xl font-black" />
             <x-money-lines x-show="viewMode === 'monthly'" style="display:none" :totals="$monthlyProfit" class="text-2xl md:text-3xl font-black" />
-            <p class="text-[11px] text-emerald-100/90 pt-2 border-t border-emerald-500/40">داهات - خەرجی، بۆ هەر دراوێک بە جیا</p>
+            <p class="text-[11px] text-emerald-100/90 pt-2 border-t border-emerald-500/40">پێشبینی خزمەتگوزاری چالاک - پلانی خەرجی؛ پارەی وەرگیراو نییە</p>
         </div>
 
         <div class="bg-white rounded-2xl md:rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-2">
-            <div class="text-xs font-bold text-slate-500" x-text="viewMode === 'annual' ? 'داهات لە کڕیاران (ساڵانە)' : 'داهات لە کڕیاران (مانگانە)'">داهات لە کڕیاران</div>
+            <div class="text-xs font-bold text-slate-500" x-text="viewMode === 'annual' ? 'پێشبینی داهاتی خزمەتگوزاری (ساڵانە)' : 'پێشبینی داهاتی خزمەتگوزاری (مانگانە)'">پێشبینی داهاتی خزمەتگوزاری</div>
             <x-money-lines x-show="viewMode === 'annual'" :totals="$annualRevenue" class="text-xl md:text-2xl font-black text-slate-900" />
             <x-money-lines x-show="viewMode === 'monthly'" style="display:none" :totals="$monthlyRevenue" class="text-xl md:text-2xl font-black text-slate-900" />
             <p class="text-[11px] text-slate-400 pt-2 border-t border-slate-100">{{ $activeCount }} خزمەتگوزاری چالاک · {{ $clientCount }} کڕیار</p>
         </div>
 
-        <a href="{{ route('admin.servers') }}" class="block bg-white rounded-2xl md:rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-2 hover:border-rose-200 transition">
-            <div class="text-xs font-bold text-slate-500" x-text="viewMode === 'annual' ? 'خەرجی (ساڵانە)' : 'خەرجی (مانگانە)'">خەرجی</div>
+        <a href="{{ route('admin.expenses', ['tab' => 'recurring']) }}" class="block bg-white rounded-2xl md:rounded-3xl p-5 border border-slate-200/80 shadow-xs space-y-2 hover:border-rose-200 transition">
+            <div class="text-xs font-bold text-slate-500" x-text="viewMode === 'annual' ? 'پێشبینی خەرجی (ساڵانە)' : 'پێشبینی خەرجی (مانگانە)'">پێشبینی خەرجی</div>
             <x-money-lines x-show="viewMode === 'annual'" :totals="$annualCosts" class="text-xl md:text-2xl font-black text-rose-600" />
             <x-money-lines x-show="viewMode === 'monthly'" style="display:none" :totals="$monthlyCosts" class="text-xl md:text-2xl font-black text-rose-600" />
-            <p class="text-[11px] text-slate-400 pt-2 border-t border-slate-100">{{ $ownServices->count() }} خزمەتگوزاری خۆم + خەرجییەکان</p>
+            <p class="text-[11px] text-slate-400 pt-2 border-t border-slate-100">لە پلانە دووبارەکانەوە ({{ $ownServices->count() }} خزمەتگوزاری خۆم)؛ هەر VPSێک یەکجار</p>
         </a>
 
         <a href="{{ route('admin.subscriptions') }}?statusFilter=unpaid" class="block rounded-2xl md:rounded-3xl p-5 border shadow-xs space-y-2 transition {{ $unpaid->isNotEmpty() ? 'bg-rose-50 border-rose-200 hover:border-rose-300' : 'bg-white border-slate-200/80' }}">
@@ -41,6 +41,31 @@
             <p class="text-[11px] {{ $unpaid->isNotEmpty() ? 'text-rose-600' : 'text-slate-400' }} pt-2 border-t {{ $unpaid->isNotEmpty() ? 'border-rose-100' : 'border-slate-100' }}">کڕیارانی پارە نەداو</p>
         </a>
     </div>
+
+    <!-- 2b. Cash this month (real money, by date) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-1">
+            <div class="text-xs font-bold text-slate-500">پارەی وەرگیراو لەم مانگەدا</div>
+            <x-money-lines :totals="$receivedThisMonth" class="text-lg font-black text-emerald-700" />
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-1">
+            <div class="text-xs font-bold text-slate-500">خەرجی دراو لەم مانگەدا</div>
+            <x-money-lines :totals="$spentThisMonth" class="text-lg font-black text-rose-600" />
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-1">
+            <div class="text-xs font-bold text-slate-500">جیاوازی cash (وەرگیراو - دراو)</div>
+            <x-money-lines :totals="$cashDifference" class="text-lg font-black text-slate-900" />
+        </div>
+        <a href="{{ route('admin.invoices', ['statusFilter' => 'overdue']) }}" class="block bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-1 hover:border-amber-200">
+            <div class="text-xs font-bold text-slate-500">قەرزی ماوەی وەسڵەکان</div>
+            <x-money-lines :totals="$openDebt" class="text-lg font-black text-amber-700" />
+        </a>
+    </div>
+    @if($reviewCount)
+        <a href="{{ route('admin.expenses', ['tab' => 'recorded']) }}" class="block bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-900">
+            {{ $reviewCount }} تۆماری کۆن (خەرجی/پارەدان) پێویستی بە پشکنینی دەستییە. بڕوانە <code>php artisan finance:backfill --dry-run</code> و تابی خەرجی.
+        </a>
+    @endif
 
     <!-- 3. Unpaid clients -->
     @if($unpaid->isNotEmpty())

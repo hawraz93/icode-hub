@@ -2,8 +2,12 @@
 
 namespace App\Livewire\Admin;
 
+use App\Exceptions\FinanceException;
 use App\Models\Server;
+use App\Services\ExpenseService;
+use App\Support\Money;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use WireUi\Traits\WireUiActions;
 
@@ -81,16 +85,18 @@ class ServersManager extends Component
     {
         $validated = $this->validate();
 
+        // The server and its expense schedule (synced in Server::saved) are written together.
+        DB::transaction(fn () => $this->editingId
+            ? Server::findOrFail($this->editingId)->update($validated)
+            : Server::create($validated));
+
         if ($this->editingId) {
-            $server = Server::findOrFail($this->editingId);
-            $server->update($validated);
             $this->notification()->send([
                 'icon' => 'success',
                 'title' => 'سێرڤەر نوێکرایەوە',
                 'description' => 'زانیاری سێرڤەر بە سەرکەوتوویی نوێکرایەوە.',
             ]);
         } else {
-            Server::create($validated);
             $this->notification()->send([
                 'icon' => 'success',
                 'title' => 'سێرڤەر زیادکرا',
@@ -109,21 +115,20 @@ class ServersManager extends Component
             return;
         }
 
-        $cycleText = match ($server->billing_cycle) {
-            'annual' => '١ ساڵ',
-            'semi_annual' => '٦ مانگ',
-            'quarterly' => '٣ مانگ',
-            default => '١ مانگ',
-        };
+        $schedule = $server->schedule ?? app(ExpenseService::class)->syncServerSchedule($server);
+        $start = $schedule->next_due_on;
+        $end = $schedule->periodEndFrom($start);
 
         $this->dialog()->confirm([
-            'title' => 'نوێکردنەوەی بەرواری سێرڤەر',
-            'description' => "ئایا دڵنیایت لە تۆمارکردنی نوێکردنەوەی سێرڤەری «{$server->name}» بۆ ماوەی {$cycleText}ی تر؟",
+            'title' => 'پارەی ئەم ماوەیە درا؟',
+            'description' => "«{$server->name}»: " . Money::format((float) $schedule->amount_per_cycle, $schedule->currency)
+                . " بۆ ماوەی {$start->toDateString()} → {$end->toDateString()} وەک خەرجیی ئەمڕۆ تۆمار دەکرێت و کاتی داهاتوو دەبێتە {$end->toDateString()}."
+                . ' بۆ بڕ یان ماوەی جیاواز لە تابی «خەرجی دووبارە» «پارەدرا» بەکاربهێنە.',
             'icon' => 'question',
             'accept' => [
-                'label' => 'بەڵێ، بەروار نوێبکەرەوە',
+                'label' => 'بەڵێ، پارەدرا',
                 'method' => 'renewServer',
-                'params' => $id,
+                'params' => [$id, $start->toDateString()],
                 'color' => 'primary',
             ],
             'reject' => [
@@ -132,15 +137,27 @@ class ServersManager extends Component
         ]);
     }
 
-    public function renewServer(int $id): void
+    /**
+     * @param  string|null  $periodStart  the period shown in the dialog; repeating the action pays it only once
+     */
+    public function renewServer(int $id, ?string $periodStart = null): void
     {
         $server = Server::findOrFail($id);
-        $newRenewal = $server->renew();
+        $schedule = $server->schedule ?? app(ExpenseService::class)->syncServerSchedule($server);
+        try {
+            // One period, one expense row; a second click for the same period records nothing new.
+            $expense = app(ExpenseService::class)->paySchedule($schedule, array_filter(['period_start' => $periodStart]));
+        } catch (FinanceException $e) {
+            $this->notification()->send(['icon' => 'error', 'title' => 'تۆمار نەکرا', 'description' => $e->getMessage()]);
+
+            return;
+        }
 
         $this->notification()->send([
             'icon' => 'success',
-            'title' => 'سێرڤەر نوێکرایەوە!',
-            'description' => "بەرواری نوێکردنەوەی سێرڤەری {$server->name} درێژکرایەوە بۆ {$newRenewal->format('Y-m-d')}.",
+            'title' => 'پارەدان تۆمارکرا',
+            'description' => "{$server->name}: " . Money::format((float) $expense->amount, $expense->currency)
+                . " · کاتی داهاتوو {$server->fresh()->renewal_date->format('Y-m-d')}.",
         ]);
     }
 
@@ -170,6 +187,17 @@ class ServersManager extends Component
     public function delete(int $id): void
     {
         $server = Server::find($id);
+        if ($server && $server->expenses()->exists()) {
+            // Paid history stays; stop the plan instead of deleting it.
+            $server->update(['status' => 'terminated']);
+            $this->notification()->send([
+                'icon' => 'info',
+                'title' => 'وەستێنرا',
+                'description' => 'ئەم سێرڤەرە خەرجیی تۆمارکراوی هەیە، بۆیە نەسڕایەوە و وەک «کۆتایی هاتوو» دیاریکرا.',
+            ]);
+
+            return;
+        }
         if ($server) {
             $server->delete();
 
@@ -202,10 +230,11 @@ class ServersManager extends Component
 
     public function render()
     {
-        $servers = Server::with(['subscriptions.client'])->orderBy('renewal_date', 'asc')->get();
+        $servers = Server::with(['subscriptions.client', 'schedule'])->orderBy('renewal_date', 'asc')->get();
 
+        // Forecast from the schedules (the single source); never added to paid expenses.
         $active = $servers->where('status', 'active');
-        $annualTotals = \App\Support\Money::totals($active, fn ($s) => $s->annual_cost, fn ($s) => $s->currency);
+        $annualTotals = Money::totals($active, fn ($s) => $s->schedule?->annual_forecast ?? $s->annual_cost, fn ($s) => $s->currency);
         $monthlyTotals = array_map(fn ($v) => $v / 12, $annualTotals);
 
         return view('livewire.admin.servers-manager', [

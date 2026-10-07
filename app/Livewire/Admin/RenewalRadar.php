@@ -2,7 +2,9 @@
 
 namespace App\Livewire\Admin;
 
+use App\Exceptions\FinanceException;
 use App\Models\ActivityReminder;
+use App\Services\ExpenseService;
 use App\Models\Server;
 use App\Models\Subscription;
 use App\Support\Money;
@@ -110,23 +112,26 @@ class RenewalRadar extends Component
         ]);
     }
 
-    public function renewServer(int $id): void
+    /**
+     * @param  string|null  $periodStart  the due date the user saw; a double click pays that period once
+     */
+    public function renewServer(int $id, ?string $periodStart = null): void
     {
         $server = Server::findOrFail($id);
-        $next = $server->renew();
+        $service = app(ExpenseService::class);
+        try {
+            // Same path as the expenses page: one paid period = one expense row, then the date moves.
+            $service->paySchedule($server->schedule ?? $service->syncServerSchedule($server), array_filter(['period_start' => $periodStart]));
+        } catch (FinanceException $e) {
+            $this->notification()->send(['icon' => 'error', 'title' => 'تۆمار نەکرا', 'description' => $e->getMessage()]);
 
-        ActivityReminder::create([
-            'server_id' => $server->id,
-            'type' => 'server_renewed',
-            'channel' => 'system',
-            'message' => "نوێکرایەوە تا {$next->format('Y-m-d')}",
-            'status' => 'sent',
-            'sent_at' => now(),
-        ]);
+            return;
+        }
+        $next = $server->fresh()->renewal_date;
 
         $this->notification()->send([
             'icon' => 'success',
-            'title' => 'سێرڤەر نوێکرایەوە',
+            'title' => 'پارەی سێرڤەر تۆمارکرا',
             'description' => "{$server->name} تا {$next->format('Y-m-d')}.",
         ]);
     }

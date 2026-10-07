@@ -221,7 +221,6 @@ class SubscriptionsManager extends Component
             'whatsapp' => $this->quick_client_phone,
             'city' => $this->quick_client_city ?: 'هەولێر',
             'status' => 'active',
-            'portal_access_code' => 'CL-' . strtoupper(Str::random(6)),
         ]);
 
         $this->client_id = $client->id;

@@ -66,7 +66,6 @@ class PortfolioHome extends Component
             'phone' => $this->req_phone,
             'notes' => "داواکاری نوێ بۆ خزمەتگوزاری: {$this->req_service}. پەیام: {$this->req_message}",
             'status' => 'active',
-            'portal_access_code' => 'CL-' . strtoupper(substr(md5(time()), 0, 6)),
         ]);
 
         $this->notification()->send([

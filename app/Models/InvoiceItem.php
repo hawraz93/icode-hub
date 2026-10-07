@@ -17,12 +17,17 @@ class InvoiceItem extends Model
         'unit_price',
         'total_price',
         'service_type',
+        'billing_cycle',
+        'start_date',
+        'expiry_date',
     ];
 
     protected $casts = [
         'quantity' => 'decimal:2',
         'unit_price' => 'decimal:2',
         'total_price' => 'decimal:2',
+        'start_date' => 'date',
+        'expiry_date' => 'date',
     ];
 
     public function invoice(): BelongsTo

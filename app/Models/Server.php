@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Services\ExpenseService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Carbon\Carbon;
 
 class Server extends Model
@@ -53,12 +55,31 @@ class Server extends Model
         'biennial' => '٢ ساڵ',
     ];
 
+    /**
+     * cost / billing_cycle / renewal_date are mirrored into the server's ExpenseSchedule, which is
+     * what forecasts read. Money paid is only ever an Expense row.
+     */
+    protected static function booted(): void
+    {
+        static::saved(fn (self $server) => app(ExpenseService::class)->syncServerSchedule($server));
+    }
+
+    public function schedule(): HasOne
+    {
+        return $this->hasOne(ExpenseSchedule::class);
+    }
+
+    public function expenses(): HasMany
+    {
+        return $this->hasMany(Expense::class);
+    }
+
     public function getKindLabelAttribute(): string
     {
         return self::KINDS[$this->kind] ?? self::KINDS['other'];
     }
 
-    /** Cost per year in the item's own currency. */
+    /** Forecast only: cost per year in the item's own currency. Never add this to paid expenses. */
     public function getAnnualCostAttribute(): float
     {
         return (float) $this->cost * Subscription::perYear($this->billing_cycle);

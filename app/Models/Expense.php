@@ -2,9 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Ledger of money actually paid. Each row counts once, on its expense_date; it is never annualised.
+ * Recurring plans live in ExpenseSchedule. Mistakes are voided (status=void) instead of deleted.
+ */
 class Expense extends Model
 {
     use HasFactory;
@@ -19,12 +25,55 @@ class Expense extends Model
         'payment_method',
         'vendor',
         'notes',
+        'expense_schedule_id',
+        'server_id',
+        'project_id',
+        'period_start',
+        'period_end',
+        'reference',
+        'status',
+        'void_reason',
+        'voided_at',
+        'idempotency_key',
+        'needs_review',
+        'review_note',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'expense_date' => 'date',
+        'period_start' => 'date',
+        'period_end' => 'date',
+        'voided_at' => 'datetime',
+        'needs_review' => 'boolean',
     ];
+
+    public function schedule(): BelongsTo
+    {
+        return $this->belongsTo(ExpenseSchedule::class, 'expense_schedule_id');
+    }
+
+    public function server(): BelongsTo
+    {
+        return $this->belongsTo(Server::class);
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+
+    /** Rows that count as money paid. */
+    public function scopePosted(Builder $query): Builder
+    {
+        return $query->where('status', 'posted');
+    }
+
+    public function getIsVoidAttribute(): bool
+    {
+        return $this->status === 'void';
+    }
+
 
     public function getCategoryLabelAttribute(): string
     {

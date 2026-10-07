@@ -69,6 +69,7 @@
                     </div>
 
                     <div class="flex items-center gap-1">
+                        <button wire:click="rotatePortalCode({{ $client->id }})" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition text-[11px] font-bold" title="کۆدی نوێی پۆرتاڵ">🔑</button>
                         <button wire:click="edit({{ $client->id }})" class="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition" title="دەستکاری">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                         </button>
@@ -147,9 +148,19 @@
                             </td>
 
                             <td class="p-4">
-                                <span class="px-2 py-1 rounded bg-slate-100 text-slate-800 font-mono font-bold text-xs" dir="ltr">
-                                    {{ $client->portal_access_code }}
-                                </span>
+                                @if($client->portal_token_hash)
+                                    <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold">کۆدی نوێ ✓</span>
+                                @elseif($client->portal_access_code)
+                                    <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[11px] font-bold" title="کۆدی کۆن؛ کۆدێکی نوێ دەربکە">کۆدی کۆن</span>
+                                @else
+                                    <span class="text-[11px] text-slate-400">نییە</span>
+                                @endif
+                                <div class="flex gap-2 mt-1">
+                                    <button wire:click="rotatePortalCode({{ $client->id }})" class="text-[11px] font-bold text-indigo-600 hover:underline">کۆدی نوێ</button>
+                                    @if($client->has_portal_access)
+                                        <button wire:click="revokePortalCode({{ $client->id }})" wire:confirm="دەستگەیشتنی پۆرتاڵی ئەم کڕیارە دابخرێت؟" class="text-[11px] font-bold text-rose-500 hover:underline">داخستن</button>
+                                    @endif
+                                </div>
                             </td>
 
                             <td class="p-4 text-center">
@@ -246,8 +257,8 @@
                 <x-input label="ناونیشانی تەواو" placeholder="شەقام، ناوچە، بینا..." wire:model="address" />
             </div>
 
-            <div>
-                <x-input label="کۆدی چوونەژوورەوەی پۆرتاڵ *" wire:model="portal_access_code" dir="ltr" />
+            <div class="text-xs text-slate-500 self-end pb-2">
+                کۆدی پۆرتاڵ دوای پاشەکەوتکردن دروست دەکرێت و تەنها یەکجار نیشان دەدرێت.
             </div>
 
             <div>
@@ -276,5 +287,19 @@
             </div>
         </x-slot>
     </x-modal-card>
+
+    @if($issuedPortalCode)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" x-data>
+            <div class="bg-white rounded-2xl p-6 max-w-md w-full space-y-4 shadow-xl">
+                <h3 class="font-black text-slate-900">کۆدی نوێی پۆرتاڵ بۆ {{ $issuedPortalFor }}</h3>
+                <p class="text-xs text-slate-600">ئەم کۆدە تەنها ئێستا نیشان دەدرێت؛ لە سیستەمدا تەنها hashـەکەی دەپارێزرێت. کۆپی بکە و بۆ کڕیار بنێرە. کۆدی پێشوو ئیتر کار ناکات.</p>
+                <div class="p-3 rounded-xl bg-slate-100 font-mono font-bold text-sm break-all select-all" dir="ltr">{{ $issuedPortalCode }}</div>
+                <div class="flex justify-between gap-2">
+                    <button type="button" x-on:click="navigator.clipboard.writeText(@js($issuedPortalCode))" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">کۆپیکردن</button>
+                    <button type="button" wire:click="closeIssuedCode" class="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold">داخستن</button>
+                </div>
+            </div>
+        </div>
+    @endif
 
 </div>

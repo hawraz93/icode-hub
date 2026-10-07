@@ -14,6 +14,7 @@
                 <option value="partial">بەشێکی دراوە (Partial)</option>
                 <option value="overdue">دواکەوتووە (Overdue)</option>
                 <option value="draft">ڕەشنووس (Draft)</option>
+                <option value="cancelled">هەڵوەشاوە (Cancelled)</option>
             </select>
         </div>
 
@@ -33,17 +34,7 @@
                         <h4 class="font-bold text-slate-900 text-sm mt-0.5">{{ $invoice->client->business_name ?? $invoice->client->name }}</h4>
                     </div>
                     <div>
-                        @if($invoice->status === 'paid')
-                            <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">دراوە</span>
-                        @elseif($invoice->status === 'sent')
-                            <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-blue-50 text-blue-700 border border-blue-200">نێردراوە</span>
-                        @elseif($invoice->status === 'partial')
-                            <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">بەشێکی دراوە</span>
-                        @elseif($invoice->status === 'overdue')
-                            <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200 animate-pulse">دواکەوتووە</span>
-                        @else
-                            <span class="px-2 py-0.5 text-[11px] font-bold rounded-full bg-slate-100 text-slate-600">ڕەشنووس</span>
-                        @endif
+                        @include('livewire.admin.partials.invoice-status', ['invoice' => $invoice])
                     </div>
                 </div>
 
@@ -76,15 +67,16 @@
                         </button>
 
                         <!-- WhatsApp -->
-                        <a href="https://wa.me/{{ $invoice->client->whatsapp_number }}?text={{ urlencode('سڵاو ڕێز بەڕێز ' . $invoice->client->name . '، وەسڵی فەرمی ژمارە (' . $invoice->invoice_number . ') بە کۆی گشتی $' . $invoice->total . ' ئامادەیە. سوپاس بۆ مامەڵەکردنتان لەگەڵ iCode Group.') }}" 
+                        <a href="https://wa.me/{{ $invoice->client->whatsapp_number }}?text={{ urlencode('سڵاو ڕێز بەڕێز ' . $invoice->client->name . '، وەسڵی فەرمی ژمارە (' . $invoice->invoice_number . ') بە کۆی گشتی ' . \App\Support\Money::format((float) $invoice->total, $invoice->currency) . ' ئامادەیە. سوپاس بۆ مامەڵەکردنتان لەگەڵ iCode Group.') }}" 
                            target="_blank"
                            class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition flex items-center gap-1 shadow-sm">
                             <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981z"/></svg>
                             <span>واتسئاپ</span>
                         </a>
 
-                        @if($invoice->status !== 'paid')
-                            <button wire:click="markAsPaid({{ $invoice->id }})" class="p-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition" title="پاکتاو">
+                        @if(in_array($invoice->status, ['sent', 'partial', 'overdue'], true) && $invoice->remaining_balance > 0)
+                            <button wire:click="openPayment({{ $invoice->id }})" class="px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-bold transition">+ پارەدان</button>
+                            <button wire:click="markAsPaid({{ $invoice->id }})" wire:confirm="هەموو قەرزی ماوە وەک وەرگیراو تۆمار بکرێت؟" class="p-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition" title="بە تەواوی درا">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                             </button>
                         @endif
@@ -152,17 +144,7 @@
                             </td>
 
                             <td class="p-4">
-                                @if($invoice->status === 'paid')
-                                    <span class="px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">دراوە</span>
-                                @elseif($invoice->status === 'sent')
-                                    <span class="px-2.5 py-1 text-[11px] font-bold rounded-full bg-blue-50 text-blue-700 border border-blue-200">نێردراوە</span>
-                                @elseif($invoice->status === 'partial')
-                                    <span class="px-2.5 py-1 text-[11px] font-bold rounded-full bg-cyan-50 text-cyan-700 border border-cyan-200">بەشێکی دراوە</span>
-                                @elseif($invoice->status === 'overdue')
-                                    <span class="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-50 text-rose-700 border border-rose-200">دواکەوتووە</span>
-                                @else
-                                    <span class="px-2.5 py-1 text-[11px] font-bold rounded-full bg-slate-100 text-slate-600">ڕەشنووس</span>
-                                @endif
+                        @include('livewire.admin.partials.invoice-status', ['invoice' => $invoice])
                             </td>
 
                             <td class="p-4 text-center">
@@ -174,14 +156,15 @@
                                     </button>
 
                                     <!-- Quick Mark Paid -->
-                                    @if($invoice->status !== 'paid')
-                                        <button wire:click="markAsPaid({{ $invoice->id }})" class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="دیاریکردن وەک دراو">
+                                    @if(in_array($invoice->status, ['sent', 'partial', 'overdue'], true) && $invoice->remaining_balance > 0)
+                                        <button wire:click="openPayment({{ $invoice->id }})" class="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition" title="تۆمارکردنی پارەدان">+ پارەدان</button>
+                                        <button wire:click="markAsPaid({{ $invoice->id }})" wire:confirm="هەموو قەرزی ماوە وەک وەرگیراو تۆمار بکرێت؟" class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="بە تەواوی درا">
                                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
                                         </button>
                                     @endif
 
                                     <!-- WhatsApp Send -->
-                                    <a href="https://wa.me/{{ $invoice->client->whatsapp_number }}?text={{ urlencode('سڵاو ڕێز بەڕێز ' . $invoice->client->name . '، وەسڵی فەرمی ژمارە (' . $invoice->invoice_number . ') بە کۆی گشتی $' . $invoice->total . ' ئامادەیە. سوپاس بۆ مامەڵەکردنتان لەگەڵ iCode Group.') }}" 
+                                    <a href="https://wa.me/{{ $invoice->client->whatsapp_number }}?text={{ urlencode('سڵاو ڕێز بەڕێز ' . $invoice->client->name . '، وەسڵی فەرمی ژمارە (' . $invoice->invoice_number . ') بە کۆی گشتی ' . \App\Support\Money::format((float) $invoice->total, $invoice->currency) . ' ئامادەیە. سوپاس بۆ مامەڵەکردنتان لەگەڵ iCode Group.') }}" 
                                        target="_blank"
                                        class="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition" 
                                        title="ناردن بە واتسئاپ">
@@ -242,12 +225,11 @@
                     <x-native-select
                         label="دۆخی وەسڵ *"
                         wire:model="status"
+                        hint="«دراوە» و «بەشێکی دراوە» خۆکار لە پارەدانەکانەوە دێن."
                         :options="[
                             ['name' => 'ڕەشنووس (Draft)', 'id' => 'draft'],
-                            ['name' => 'نێردراوە (Sent)', 'id' => 'sent'],
-                            ['name' => 'دراوە (Paid)', 'id' => 'paid'],
-                            ['name' => 'بەشێکی دراوە (Partial)', 'id' => 'partial'],
-                            ['name' => 'دواکەوتووە (Overdue)', 'id' => 'overdue'],
+                            ['name' => 'دەرچووە / نێردراوە (Issued)', 'id' => 'sent'],
+                            ['name' => 'هەڵوەشاوە (Cancelled)', 'id' => 'cancelled'],
                         ]"
                         option-label="name"
                         option-value="id"
@@ -279,6 +261,10 @@
                 </div>
             </div>
 
+            <x-native-select label="دراوی وەسڵ" wire:model.live="currency">
+                <option value="USD">USD</option><option value="IQD">IQD</option>
+            </x-native-select>
+<p class="text-sm text-slate-600">دروستکردن بڕگەیەکی یەکجارەیە. بۆ هۆستی دوو ساڵ: ماوە ساڵانە، ژمارە ٢، و نرخی ساڵێک بنووسە. کۆی نرخ = نرخی ساڵانە × ٢. بەرواری پارەدان جیاوازە لە بەسەرچوونی هۆست.</p>
             <!-- Dynamic Items Table -->
             <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
                 <div class="flex items-center justify-between">
@@ -291,19 +277,33 @@
                 <div class="space-y-2">
                     @foreach($items as $index => $item)
                         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center bg-white p-3 rounded-xl border border-slate-200">
+                            <div class="md:col-span-12 grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <x-native-select label="جۆری خزمەتگوزاری" wire:model="items.{{ $index }}.service_type">
+                                    @foreach(['development' => 'دروستکردنی وێبسایت / سیستەم', 'hosting' => 'هۆست', 'domain' => 'دۆمەین', 'vps' => 'VPS', 'email' => 'ئیمەیڵ', 'maintenance' => 'چاککردنەوە', 'license' => 'لایسەنس', 'other' => 'هی تر'] as $type => $label)
+                                        <option value="{{ $type }}">{{ $label }}</option>
+                                    @endforeach
+                                </x-native-select>
+                                <x-native-select label="نرخ بۆ" wire:model.live="items.{{ $index }}.billing_cycle">
+                                    <option value="one_time">یەکجار</option><option value="monthly">مانگێک</option><option value="annual">ساڵێک</option>
+                                </x-native-select>
+                                @if(($item['billing_cycle'] ?? 'one_time') !== 'one_time')
+                                    <x-input type="date" label="ڕۆژی دەستپێک" wire:model.live="items.{{ $index }}.start_date" />
+                                    <x-input type="date" label="ڕۆژی بەسەرچوون" wire:model="items.{{ $index }}.expiry_date" />
+                                @endif
+                            </div>
                             <div class="md:col-span-6">
                                 <x-input label="وەسف / خزمەتگوزاری" placeholder="پەرەپێدان، نوێکردنەوەی دۆمەین، هۆستینگ..." wire:model="items.{{ $index }}.description" />
                             </div>
 
                             <div class="md:col-span-2">
-                                <x-input label="ژمارە / بڕ" type="number" step="0.5" wire:model="items.{{ $index }}.quantity" />
+                                <x-input label="ژمارە / مانگ / ساڵ" type="number" step="1" min="1" wire:model.live="items.{{ $index }}.quantity" />
                             </div>
 
                             <div class="md:col-span-3">
                                 <x-input type="number" step="any" min="0" inputmode="decimal"
-                                    label="نرخی تاک ($)"
+                                    label="نرخی تاک / ماوە ({{ $currency }})"
                                     placeholder="0"
-                                    prefix="$"
+                                    prefix="{{ $currency }}"
                                     wire:model="items.{{ $index }}.unit_price"
  />
                             </div>
@@ -326,18 +326,14 @@
                     <x-input type="number" step="any" min="0" inputmode="decimal"
                         label="داشکاندن (Discount)"
                         placeholder="0"
-                        prefix="$"
+                        prefix="{{ $currency }}"
                         wire:model="discount"
  />
                 </div>
 
-                <div>
-                    <x-input type="number" step="any" min="0" inputmode="decimal"
-                        label="بڕی دراو (Paid Amount)"
-                        placeholder="0"
-                        prefix="$"
-                        wire:model="paid_amount"
- />
+                <div class="text-xs text-slate-600 bg-slate-50 rounded-xl p-3 self-start">
+                    <span class="font-bold block mb-1">بڕی دراو</span>
+                    لێرە دەستکاری ناکرێت. پارەدان لە لیستی وەسڵەکان بە دوگمەی «+ پارەدان» تۆمار بکە؛ مێژووی هەموو پارەدانێک دەپارێزرێت.
                 </div>
 
                 <div>
@@ -392,9 +388,7 @@
 
                     <div class="sm:text-end">
                         <span class="font-bold text-slate-400 uppercase tracking-wider block mb-1">دۆخی وەسڵ / Status:</span>
-                        <span class="inline-block px-3 py-1 text-xs font-black rounded-full {{ $viewingInvoice->status === 'paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800' }}">
-                            {{ $viewingInvoice->status_label }}
-                        </span>
+                        @include('livewire.admin.partials.invoice-status', ['invoice' => $viewingInvoice])
                         <div class="text-slate-500 text-xs mt-2">شێوازی دان: {{ $viewingInvoice->payment_method ?? 'FIB / FastPay / کاش' }}</div>
                     </div>
                 </div>
@@ -415,7 +409,12 @@
                             @foreach($viewingInvoice->items as $idx => $item)
                                 <tr>
                                     <td class="p-3 font-mono text-slate-400">{{ $idx + 1 }}</td>
-                                    <td class="p-3 font-semibold text-slate-900">{{ $item->description }}</td>
+                                    <td class="p-3 font-semibold text-slate-900">{{ $item->description }}
+                                        <div class="text-xs text-slate-500">{{ match($item->billing_cycle) { 'annual' => 'نرخی ساڵانە', 'monthly' => 'نرخی مانگانە', default => 'یەکجار' } }}</div>
+                                        @if($item->start_date && $item->expiry_date)
+                                            <div class="text-xs text-slate-500">دەستپێک: {{ $item->start_date->format('Y-m-d') }} — بەسەرچوون: {{ $item->expiry_date->format('Y-m-d') }}</div>
+                                        @endif
+                                    </td>
                                     <td class="p-3 text-center font-mono font-bold">{{ $item->quantity }}</td>
                                     <td class="p-3 text-end font-mono" dir="ltr">{{ \App\Support\Money::format((float) $item->unit_price, $viewingInvoice->currency) }}</td>
                                     <td class="p-3 text-end font-mono font-extrabold text-slate-900" dir="ltr">{{ \App\Support\Money::format((float) $item->total_price, $viewingInvoice->currency) }}</td>
@@ -467,6 +466,33 @@
                     </div>
                 </div>
 
+                <!-- Payment history (admin only, hidden when printing) -->
+                @if($viewingInvoice->payments->isNotEmpty())
+                    <div class="print:hidden border border-slate-200 rounded-xl p-4 space-y-2 text-xs">
+                        <div class="font-bold text-slate-800">مێژووی پارەدان</div>
+                        @foreach($viewingInvoice->payments as $payment)
+                            <div class="flex flex-wrap items-center justify-between gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                                <div>
+                                    <span class="font-mono" dir="ltr">{{ $payment->paid_on?->format('Y-m-d') ?? 'بەروار نەزانراوە' }}</span>
+                                    <span class="text-slate-500">· {{ $payment->method_label }}</span>
+                                    @if($payment->type === 'reversal')<span class="text-rose-600 font-bold">· گەڕاندنەوە</span>@endif
+                                    @if($payment->source === 'legacy_import')<span class="text-amber-600">· هاوردەکراو</span>@endif
+                                    @if($payment->needs_review)<span class="text-amber-700 font-bold">· پێویستی بە پشکنینە</span>@endif
+                                    @if($payment->reference)<span class="text-slate-400 font-mono" dir="ltr">· {{ $payment->reference }}</span>@endif
+                                    @if($payment->notes)<div class="text-slate-500">{{ $payment->notes }}</div>@endif
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono font-bold {{ $payment->amount < 0 ? 'text-rose-600' : 'text-emerald-700' }}" dir="ltr">{{ \App\Support\Money::format((float) $payment->amount, $payment->currency) }}</span>
+                                    @if($payment->type === 'payment' && ! $payment->reversal)
+                                        <button wire:click="reversePayment({{ $payment->id }})" wire:confirm="ئەم پارەدانە بگەڕێنرێتەوە؟ سەرەتا هۆکار لە خانەی خوارەوە بنووسە." class="text-[11px] text-rose-600 font-bold hover:underline">گەڕاندنەوە</button>
+                                    @endif
+                                </div>
+                            </div>
+                        @endforeach
+                        <x-input placeholder="هۆکاری گەڕاندنەوە (پێویستە)" wire:model="reverseReason" />
+                    </div>
+                @endif
+
                 <!-- Payment Accounts / Bank Details -->
                 <div class="p-4 bg-slate-900 text-white rounded-xl text-xs flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div>
@@ -491,5 +517,34 @@
             </x-slot>
         </x-modal-card>
     @endif
+
+    <!-- Record Payment Modal -->
+    <x-modal-card title="تۆمارکردنی پارەدان" wire:model="showPaymentModal" max-width="lg">
+        @if($paymentInvoice)
+            <div class="space-y-4">
+                <div class="text-xs bg-slate-50 rounded-xl p-3 space-y-1">
+                    <div>وەسڵ: <span class="font-mono font-bold" dir="ltr">{{ $paymentInvoice->invoice_number }}</span></div>
+                    <div>کۆی گشتی: <span class="font-mono" dir="ltr">{{ \App\Support\Money::format((float) $paymentInvoice->total, $paymentInvoice->currency) }}</span>
+                        · ماوە: <span class="font-mono font-bold text-amber-700" dir="ltr">{{ \App\Support\Money::format($paymentInvoice->remaining_balance, $paymentInvoice->currency) }}</span></div>
+                    <div class="text-slate-500">پارەدان تەنها بە دراوی وەسڵ ({{ $paymentInvoice->currency }}) وەردەگیرێت.</div>
+                </div>
+                <x-input type="number" step="any" min="0" inputmode="decimal" label="بڕ *" prefix="{{ $paymentInvoice->currency }}" wire:model="pay_amount" />
+                <x-input type="date" label="بەرواری وەرگرتن *" wire:model="pay_date" />
+                <x-native-select label="شێواز *" wire:model="pay_method">
+                    @foreach($paymentMethods as $value => $label)
+                        <option value="{{ $value }}">{{ $label }}</option>
+                    @endforeach
+                </x-native-select>
+                <x-input label="ژمارەی مامەڵە / سەرچاوە" wire:model="pay_reference" dir="ltr" />
+                <x-textarea label="تێبینی" wire:model="pay_notes" />
+            </div>
+        @endif
+        <x-slot name="footer">
+            <div class="flex items-center justify-end gap-3">
+                <x-button flat label="پاشگەزبوونەوە" x-on:click="close" />
+                <x-button positive label="تۆمارکردن" wire:click="savePayment" spinner="savePayment" />
+            </div>
+        </x-slot>
+    </x-modal-card>
 
 </div>

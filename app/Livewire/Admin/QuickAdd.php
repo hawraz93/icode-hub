@@ -66,7 +66,6 @@ class QuickAdd extends Component
             'phone' => $this->newClientPhone ?: null,
             'whatsapp' => $this->newClientPhone ?: null,
             'status' => 'active',
-            'portal_access_code' => 'CL-' . strtoupper(Str::random(6)),
         ]);
 
         // Give it to every row that has no client yet.

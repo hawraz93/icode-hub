@@ -2,10 +2,15 @@
 
 namespace App\Models;
 
+use App\Services\PaymentService;
+use App\Support\Decimal;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class Invoice extends Model
@@ -57,27 +62,18 @@ class Invoice extends Model
     }
 
     /**
-     * Record full payment of whatever is still owed.
+     * Record full payment of whatever is still owed (no-op when nothing is owed).
      */
-    public function markPaid(?string $method = null): void
+    public function markPaid(?string $method = null, string $source = 'manual', ?string $idempotencyKey = null): ?Payment
     {
-        $this->update([
-            'status' => 'paid',
-            'paid_amount' => $this->total,
-            'paid_at' => now(),
-            'payment_method' => $method ?? $this->payment_method,
-        ]);
+        $payment = app(PaymentService::class)->payRemaining($this, array_filter([
+            'method' => $method,
+            'source' => $source,
+            'idempotency_key' => $idempotencyKey,
+        ]));
+        $this->refresh();
 
-        ActivityReminder::create([
-            'client_id' => $this->client_id,
-            'subscription_id' => $this->subscription_id,
-            'invoice_id' => $this->id,
-            'type' => 'invoice_paid',
-            'channel' => 'system',
-            'message' => "پارەی وەسڵی {$this->invoice_number} وەرگیرا",
-            'status' => 'sent',
-            'sent_at' => now(),
-        ]);
+        return $payment;
     }
 
     /**
@@ -118,28 +114,72 @@ class Invoice extends Model
         return $this->hasMany(InvoiceItem::class);
     }
 
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class)->orderBy('paid_on')->orderBy('id');
+    }
+
+    /** Invoices that count as money owed: issued, not cancelled, not drafts, balance left. */
+    public function scopeOpen(Builder $query): Builder
+    {
+        return $query->whereIn('status', ['sent', 'partial', 'overdue'])->whereColumn('paid_amount', '<', 'total');
+    }
+
     public function getRemainingBalanceAttribute(): float
     {
-        return (float) ($this->total - $this->paid_amount);
+        return Decimal::of($this->total)->minus(Decimal::of($this->paid_amount))->toFloat();
     }
 
     public function getIsOverdueAttribute(): bool
     {
-        if ($this->status === 'paid' || $this->status === 'cancelled') return false;
+        if (in_array($this->status, ['paid', 'cancelled', 'draft'], true) || $this->remaining_balance <= 0) return false;
         return $this->due_date && Carbon::now()->startOfDay()->gt(Carbon::parse($this->due_date)->startOfDay());
     }
 
+    /** Status for display: "overdue" is derived from the due date and balance, never stored by new code. */
+    public function getDisplayStatusAttribute(): string
+    {
+        return $this->is_overdue ? 'overdue' : ($this->status === 'overdue' ? 'sent' : $this->status);
+    }
+
+    public function getDisplayStatusLabelAttribute(): string
+    {
+        return self::STATUS_LABELS[$this->display_status] ?? $this->display_status;
+    }
+
+    public const STATUS_LABELS = [
+        'draft' => 'ڕەشنووس',
+        'sent' => 'نێردراوە',
+        'paid' => 'دراوە',
+        'partial' => 'بەشێکی دراوە',
+        'overdue' => 'دواکەوتووە',
+        'cancelled' => 'هەڵوەشاوەتەوە',
+    ];
+
     public function getStatusLabelAttribute(): string
     {
-        return match ($this->status) {
-            'draft' => 'ڕەشنووس',
-            'sent' => 'نێردراوە',
-            'paid' => 'دراوە',
-            'partial' => 'بەشێکی دراوە',
-            'overdue' => 'دواکەوتووە',
-            'cancelled' => 'هەڵوەشاوەتەوە',
-            default => $this->status,
-        };
+        return self::STATUS_LABELS[$this->status] ?? $this->status;
+    }
+
+    /**
+     * Create an invoice with the next free number. invoice_number is unique in the database; when two
+     * admins save at the same moment the loser retries with a fresh number.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public static function createNumbered(array $attributes, int $attempts = 5): self
+    {
+        for ($i = 1; ; $i++) {
+            $number = $i === 1 && ! empty($attributes['invoice_number']) ? $attributes['invoice_number'] : self::generateNextInvoiceNumber();
+            try {
+                // Savepoint, so a collision does not abort an outer transaction.
+                return DB::transaction(fn () => self::create(array_merge($attributes, ['invoice_number' => $number])));
+            } catch (UniqueConstraintViolationException $e) {
+                if ($i >= $attempts) {
+                    throw $e;
+                }
+            }
+        }
     }
 
     public static function generateNextInvoiceNumber(): string

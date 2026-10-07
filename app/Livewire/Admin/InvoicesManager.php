@@ -2,12 +2,19 @@
 
 namespace App\Livewire\Admin;
 
+use App\Exceptions\FinanceException;
 use App\Models\Client;
 use App\Models\Contract;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Payment;
 use App\Models\Project;
+use App\Services\PaymentService;
+use App\Support\Decimal;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 use WireUi\Traits\WireUiActions;
@@ -18,6 +25,7 @@ class InvoicesManager extends Component
     use WireUiActions;
 
     public string $search = '';
+    #[Url]
     public string $statusFilter = 'all';
 
     public bool $showModal = false;
@@ -25,7 +33,18 @@ class InvoicesManager extends Component
 
     // View Invoice Modal
     public bool $showViewModal = false;
-    public ?Invoice $viewingInvoice = null;
+    public ?int $viewingId = null;
+    public string $reverseReason = '';
+
+    // Record Payment Modal
+    public bool $showPaymentModal = false;
+    public ?int $paymentInvoiceId = null;
+    public $pay_amount = null; // untyped: an emptied number input sends ""
+    public ?string $pay_date = null;
+    public string $pay_method = 'cash';
+    public string $pay_reference = '';
+    public string $pay_notes = '';
+    public string $payKey = ''; // one key per opened form: a double submit records one payment
 
     // Invoice Form Fields
     public ?int $client_id = null;
@@ -36,9 +55,8 @@ class InvoicesManager extends Component
     public ?string $due_date = null;
     public $discount = 0.00; // untyped: an emptied number input sends ""
     public $tax = 0.00; // untyped: an emptied number input sends ""
-    public $paid_amount = 0.00; // untyped: an emptied number input sends ""
     public string $currency = 'USD';
-    public string $status = 'draft';
+    public string $status = 'sent'; // draft, sent or cancelled; partial/paid follow from payments
     public string $payment_method = 'FIB / FastPay / کاش';
     public string $notes = '';
     public string $terms = 'تکایە پێش بەرواری دیاریکراو پاکتاوی ئەم وەسڵە بکەن.';
@@ -54,12 +72,11 @@ class InvoicesManager extends Component
             'project_id' => 'nullable|exists:projects,id',
             'invoice_number' => 'required|string|max:50',
             'issue_date' => 'required|date',
-            'due_date' => 'required|date',
+            'due_date' => 'required|date|after_or_equal:issue_date',
             'discount' => 'nullable|numeric|min:0',
             'tax' => 'nullable|numeric|min:0',
-            'paid_amount' => 'nullable|numeric|min:0',
-            'currency' => 'required|string|max:10',
-            'status' => 'required|in:draft,sent,paid,partial,overdue,cancelled',
+            'currency' => 'required|in:USD,IQD',
+            'status' => 'required|in:draft,sent,cancelled',
             'payment_method' => 'nullable|string|max:100',
             'notes' => 'nullable|string',
             'terms' => 'nullable|string',
@@ -67,7 +84,10 @@ class InvoicesManager extends Component
             'items.*.description' => 'required|string|max:255',
             'items.*.quantity' => 'required|numeric|min:0.1',
             'items.*.unit_price' => 'required|numeric|min:0',
-            'items.*.service_type' => 'nullable|string',
+            'items.*.service_type' => 'required|in:development,hosting,domain,vps,email,maintenance,license,other',
+            'items.*.billing_cycle' => 'required|in:one_time,monthly,annual',
+            'items.*.start_date' => 'nullable|required_unless:items.*.billing_cycle,one_time|date',
+            'items.*.expiry_date' => 'nullable|required_unless:items.*.billing_cycle,one_time|date|after:items.*.start_date',
         ];
     }
 
@@ -83,7 +103,32 @@ class InvoicesManager extends Component
             'quantity' => 1,
             'unit_price' => 0.00,
             'service_type' => 'development',
+            'billing_cycle' => 'one_time',
+            'start_date' => null,
+            'expiry_date' => null,
         ];
+    }
+
+    public function updatedItems($value, $key): void
+    {
+        [$index, $field] = explode('.', $key, 2);
+        if (!in_array($field, ['billing_cycle', 'quantity', 'start_date'], true)) return;
+        $item = $this->items[$index];
+        if ($item['billing_cycle'] === 'one_time') {
+            $this->items[$index]['start_date'] = null;
+            $this->items[$index]['expiry_date'] = null;
+            return;
+        }
+        if (empty($item['start_date']) || !is_numeric($item['quantity']) || (float) $item['quantity'] < 1 || (float) $item['quantity'] != (int) $item['quantity']) return;
+        try {
+            $start = Carbon::parse($item['start_date']);
+            $end = $item['billing_cycle'] === 'annual'
+                ? $start->addYearsNoOverflow((int) $item['quantity'])
+                : $start->addMonthsNoOverflow((int) $item['quantity']);
+            $this->items[$index]['expiry_date'] = $end->format('Y-m-d');
+        } catch (\Exception $e) {
+            $this->addError("items.$index.start_date", 'ژمارە یان بەروارێکی دروست بنووسە.');
+        }
     }
 
     public function removeItem(int $index): void
@@ -110,9 +155,8 @@ class InvoicesManager extends Component
         $this->due_date = $invoice->due_date->format('Y-m-d');
         $this->discount = (float) $invoice->discount;
         $this->tax = (float) $invoice->tax;
-        $this->paid_amount = (float) $invoice->paid_amount;
         $this->currency = $invoice->currency;
-        $this->status = $invoice->status;
+        $this->status = in_array($invoice->status, ['draft', 'cancelled'], true) ? $invoice->status : 'sent';
         $this->payment_method = $invoice->payment_method ?? 'FIB / FastPay / کاش';
         $this->notes = $invoice->notes ?? '';
         $this->terms = $invoice->terms ?? '';
@@ -124,6 +168,9 @@ class InvoicesManager extends Component
                 'quantity' => (float) $item->quantity,
                 'unit_price' => (float) $item->unit_price,
                 'service_type' => $item->service_type ?? 'development',
+                'billing_cycle' => $item->billing_cycle ?? 'one_time',
+                'start_date' => $item->start_date?->format('Y-m-d'),
+                'expiry_date' => $item->expiry_date?->format('Y-m-d'),
             ];
         }
 
@@ -132,34 +179,140 @@ class InvoicesManager extends Component
 
     public function viewInvoice(int $id): void
     {
-        $this->viewingInvoice = Invoice::with(['client', 'items', 'project'])->findOrFail($id);
+        $this->viewingId = Invoice::findOrFail($id)->id;
+        $this->reverseReason = '';
         $this->showViewModal = true;
     }
 
-    public function markAsPaid(int $id): void
+    /** "Paid in full": records only the remaining balance; a second click records nothing. */
+    public function markAsPaid(int $id, PaymentService $payments): void
     {
         $invoice = Invoice::findOrFail($id);
-        $invoice->markPaid();
+        try {
+            $payment = $payments->payRemaining($invoice, ['source' => 'manual']);
+        } catch (FinanceException $e) {
+            $this->notifyError($e->getMessage());
+
+            return;
+        }
 
         $this->notification()->send([
             'icon' => 'success',
             'title' => 'وەسڵ پاکتاوکرا',
-            'description' => "وەسڵ ژمارە {$invoice->invoice_number} بە تەواوی درا.",
+            'description' => $payment
+                ? "وەسڵ ژمارە {$invoice->invoice_number} بە تەواوی درا."
+                : "وەسڵ ژمارە {$invoice->invoice_number} پێشتر پاکتاو کرابوو.",
         ]);
     }
 
-    public function save(): void
+    public function openPayment(int $id): void
     {
-        $this->validate();
+        $invoice = Invoice::findOrFail($id);
+        app(PaymentService::class)->refresh($invoice);
 
-        // Calculate Subtotal & Total
-        $subtotal = 0;
-        foreach ($this->items as $item) {
-            $subtotal += ($item['quantity'] * $item['unit_price']);
+        $this->paymentInvoiceId = $invoice->id;
+        $this->pay_amount = max(0, $invoice->remaining_balance);
+        $this->pay_date = today()->toDateString();
+        $this->pay_method = 'cash';
+        $this->pay_reference = '';
+        $this->pay_notes = '';
+        $this->payKey = 'web:' . Str::uuid();
+        $this->resetErrorBag();
+        $this->showPaymentModal = true;
+    }
+
+    public function savePayment(PaymentService $payments): void
+    {
+        $this->validate([
+            'pay_amount' => 'required|numeric|gt:0',
+            'pay_date' => 'required|date|before_or_equal:today',
+            'pay_method' => 'required|in:' . implode(',', array_keys(Payment::METHODS)),
+            'pay_reference' => 'nullable|string|max:255',
+            'pay_notes' => 'nullable|string|max:1000',
+        ], [], ['pay_amount' => 'بڕ', 'pay_date' => 'بەروار']);
+
+        $invoice = Invoice::findOrFail($this->paymentInvoiceId);
+        try {
+            $payments->record($invoice, $this->pay_amount, [
+                'paid_on' => $this->pay_date,
+                'method' => $this->pay_method,
+                'reference' => $this->pay_reference ?: null,
+                'notes' => $this->pay_notes ?: null,
+                'currency' => $invoice->currency,
+                'idempotency_key' => $this->payKey,
+            ]);
+        } catch (FinanceException $e) {
+            $this->addError('pay_amount', $e->getMessage());
+
+            return;
         }
 
-        $total = $subtotal - $this->discount + $this->tax;
-        if ($total < 0) $total = 0;
+        $this->showPaymentModal = false;
+        $this->notification()->send([
+            'icon' => 'success',
+            'title' => 'پارەدان تۆمارکرا',
+            'description' => "وەسڵی {$invoice->invoice_number}.",
+        ]);
+    }
+
+    public function reversePayment(int $paymentId, PaymentService $payments): void
+    {
+        $payment = Payment::findOrFail($paymentId);
+        try {
+            $payments->reverse($payment, $this->reverseReason);
+        } catch (FinanceException $e) {
+            $this->notifyError($e->getMessage());
+
+            return;
+        }
+        $this->reverseReason = '';
+        $this->notification()->send(['icon' => 'success', 'title' => 'پارەدان گەڕێندرایەوە', 'description' => 'تۆماری پێچەوانە زیادکرا؛ ئەسڵەکەی ماوە.']);
+    }
+
+    public function save(PaymentService $payments): void
+    {
+        foreach ($this->items as $index => $item) {
+            if (($item['billing_cycle'] ?? 'one_time') === 'one_time') {
+                $this->items[$index]['start_date'] = null;
+                $this->items[$index]['expiry_date'] = null;
+            }
+        }
+        $this->validate();
+        foreach ($this->items as $index => $item) {
+            if ($item['billing_cycle'] !== 'one_time' && (float) $item['quantity'] != (int) $item['quantity']) {
+                $this->addError("items.$index.quantity", 'ژمارە یان بەروارێکی دروست بنووسە.');
+                return;
+            }
+        }
+
+        // Exact decimal totals (no float accumulation)
+        $subtotal = Decimal::sum(array_map(fn ($item) => Decimal::mul($item['unit_price'], $item['quantity']), $this->items));
+        $total = $subtotal->minus(Decimal::of($this->discount))->plus(Decimal::of($this->tax));
+        if ($total->isLessThan(0)) {
+            $total = Decimal::of(0);
+        }
+
+        $existing = $this->editingId ? Invoice::findOrFail($this->editingId) : null;
+        if ($existing) {
+            $netPaid = $payments->netPaid($existing);
+            $hasMoney = $existing->payments()->exists() || Decimal::of($existing->paid_amount)->isGreaterThan(0);
+            if ($hasMoney && $existing->currency !== $this->currency) {
+                $this->addError('currency', 'دراوی وەسڵێک کە پارەی لەسەر تۆمارکراوە ناگۆڕدرێت.');
+                return;
+            }
+            if ($total->isLessThan($netPaid->isGreaterThan(0) ? $netPaid : Decimal::of($existing->paid_amount))) {
+                $this->addError('discount', 'کۆی نوێی وەسڵ لە بڕی دراو کەمترە. سەرەتا پارەدانێک بگەڕێنەوە.');
+                return;
+            }
+            if ($this->status === 'cancelled' && $existing->status !== 'cancelled') {
+                try {
+                    PaymentService::assertCanCancel($existing);
+                } catch (FinanceException $e) {
+                    $this->addError('status', $e->getMessage());
+                    return;
+                }
+            }
+        }
 
         $invoiceData = [
             'client_id' => $this->client_id,
@@ -168,23 +321,25 @@ class InvoicesManager extends Component
             'invoice_number' => $this->invoice_number,
             'issue_date' => $this->issue_date,
             'due_date' => $this->due_date,
-            'subtotal' => $subtotal,
-            'discount' => $this->discount,
-            'tax' => $this->tax,
-            'total' => $total,
-            'paid_amount' => $this->paid_amount,
+            'subtotal' => Decimal::str($subtotal),
+            'discount' => Decimal::str(Decimal::of($this->discount)),
+            'tax' => Decimal::str(Decimal::of($this->tax)),
+            'total' => Decimal::str($total),
             'currency' => $this->currency,
             'status' => $this->status,
             'payment_method' => $this->payment_method,
             'notes' => $this->notes,
             'terms' => $this->terms,
-            'paid_at' => $this->status === 'paid' ? Carbon::now() : null,
         ];
 
-        if ($this->editingId) {
-            $invoice = Invoice::findOrFail($this->editingId);
-            $invoice->update($invoiceData);
-            $invoice->items()->delete();
+        DB::transaction(function () use ($invoiceData, $existing, $payments) {
+            if ($existing) {
+                $existing->update($invoiceData);
+                $invoice = $existing;
+                $invoice->items()->delete();
+            } else {
+                $invoice = Invoice::createNumbered($invoiceData + ['paid_amount' => 0]);
+            }
 
             foreach ($this->items as $item) {
                 InvoiceItem::create([
@@ -192,35 +347,23 @@ class InvoicesManager extends Component
                     'description' => $item['description'],
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
-                    'total_price' => $item['quantity'] * $item['unit_price'],
+                    'total_price' => Decimal::str(Decimal::mul($item['unit_price'], $item['quantity'])),
                     'service_type' => $item['service_type'] ?? 'development',
+                    'billing_cycle' => $item['billing_cycle'],
+                    'start_date' => $item['start_date'] ?: null,
+                    'expiry_date' => $item['expiry_date'] ?: null,
                 ]);
             }
 
-            $this->notification()->send([
-                'icon' => 'success',
-                'title' => 'وەسڵ نوێکرایەوە',
-                'description' => 'زانیاری وەسڵ بە سەرکەوتوویی نوێکرایەوە.',
-            ]);
-        } else {
-            $invoice = Invoice::create($invoiceData);
-            foreach ($this->items as $item) {
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'description' => $item['description'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'total_price' => $item['quantity'] * $item['unit_price'],
-                    'service_type' => $item['service_type'] ?? 'development',
-                ]);
-            }
+            // paid_amount / partial / paid always follow the payment rows.
+            $payments->refresh($invoice);
+        });
 
-            $this->notification()->send([
-                'icon' => 'success',
-                'title' => 'وەسڵ دروستکرا',
-                'description' => 'وەسڵی نوێ بە سەرکەوتوویی دروستکرا.',
-            ]);
-        }
+        $this->notification()->send([
+            'icon' => 'success',
+            'title' => $existing ? 'وەسڵ نوێکرایەوە' : 'وەسڵ دروستکرا',
+            'description' => $existing ? 'زانیاری وەسڵ بە سەرکەوتوویی نوێکرایەوە.' : 'وەسڵی نوێ بە سەرکەوتوویی دروستکرا.',
+        ]);
 
         $this->showModal = false;
         $this->resetForm();
@@ -252,15 +395,27 @@ class InvoicesManager extends Component
     public function delete(int $id): void
     {
         $invoice = Invoice::find($id);
-        if ($invoice) {
-            $invoice->delete();
-
-            $this->notification()->send([
-                'icon' => 'success',
-                'title' => 'سڕایەوە',
-                'description' => 'وەسڵ بە سەرکەوتوویی سڕایەوە.',
-            ]);
+        if (! $invoice) {
+            return;
         }
+        // Money history is never hard-deleted: cancel the invoice instead.
+        if ($invoice->payments()->exists() || Decimal::of($invoice->paid_amount)->isGreaterThan(0) || $invoice->status === 'paid') {
+            $this->notifyError('ئەم وەسڵە پارەی لەسەر تۆمارکراوە و ناسڕدرێتەوە. ئەگەر پێویستە، پارەدانەکان بگەڕێنەوە و وەسڵەکە هەڵبوەشێنەوە.');
+
+            return;
+        }
+
+        $invoice->delete();
+        $this->notification()->send([
+            'icon' => 'success',
+            'title' => 'سڕایەوە',
+            'description' => 'وەسڵ بە سەرکەوتوویی سڕایەوە.',
+        ]);
+    }
+
+    private function notifyError(string $message): void
+    {
+        $this->notification()->send(['icon' => 'error', 'title' => 'ڕێگەپێنەدراوە', 'description' => $message]);
     }
 
     private function resetForm(): void
@@ -274,7 +429,6 @@ class InvoicesManager extends Component
         $this->due_date = Carbon::now()->addDays(15)->format('Y-m-d');
         $this->discount = 0.00;
         $this->tax = 0.00;
-        $this->paid_amount = 0.00;
         $this->currency = 'USD';
         $this->status = 'sent';
         $this->payment_method = 'FIB / FastPay / کاش';
@@ -288,13 +442,15 @@ class InvoicesManager extends Component
     {
         $invoices = Invoice::with(['client', 'items', 'project'])
             ->when($this->search, function ($q) {
-                $q->where('invoice_number', 'like', "%{$this->search}%")
+                // Grouped, so the status filter below still applies to every search match.
+                $q->where(fn ($w) => $w->where('invoice_number', 'like', "%{$this->search}%")
                   ->orWhereHas('client', function ($cq) {
                       $cq->where('name', 'like', "%{$this->search}%")
                          ->orWhere('business_name', 'like', "%{$this->search}%");
-                  });
+                  }));
             })
-            ->when($this->statusFilter !== 'all', fn($q) => $q->where('status', $this->statusFilter))
+            ->when($this->statusFilter === 'overdue', fn ($q) => $q->open()->whereDate('due_date', '<', today()))
+            ->when(! in_array($this->statusFilter, ['all', 'overdue'], true), fn($q) => $q->where('status', $this->statusFilter))
             ->latest('issue_date')
             ->paginate(10);
 
@@ -307,6 +463,9 @@ class InvoicesManager extends Component
             'clients' => $clients,
             'projects' => $projects,
             'contracts' => $contracts,
+            'viewingInvoice' => $this->viewingId ? Invoice::with(['client', 'items', 'project', 'payments.reversal'])->find($this->viewingId) : null,
+            'paymentInvoice' => $this->paymentInvoiceId ? Invoice::find($this->paymentInvoiceId) : null,
+            'paymentMethods' => Payment::METHODS,
         ])->layout('layouts.app', ['title' => 'بەڕێوەبردنی وەسڵەکان', 'header' => 'دروستکردن و بەڕێوەبردنی وەسڵ و پارەدان']);
     }
 }

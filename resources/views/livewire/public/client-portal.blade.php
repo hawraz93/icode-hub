@@ -6,15 +6,16 @@
             <div class="text-center space-y-2">
                 <img src="{{ asset('images/logo.png') }}" alt="iCode" class="h-12 w-auto mx-auto object-contain">
                 <h2 class="text-2xl font-black text-white">پۆرتاڵی تایبەت بە کڕیاران</h2>
-                <p class="text-xs text-slate-400">کۆدی تایبەتی کڕیار یان ژمارەی مۆبایلەکەت بنووسە</p>
+                <p class="text-xs text-slate-400">ئەو کۆدە تایبەتەی کە iCode بۆی ناردوویت بنووسە</p>
             </div>
 
             <form wire:submit.prevent="login" class="space-y-4">
                 <div>
-                    <x-input 
-                        label="کۆدی پۆرتاڵ یان ژمارەی مۆبایل" 
-                        placeholder="نموونە: CL-SP-8821 یان 07501234567" 
-                        wire:model="accessCode" 
+                    <x-input
+                        label="کۆدی پۆرتاڵ"
+                        placeholder="ICP-XXXXXXXX-..."
+                        wire:model="accessCode"
+                        autocomplete="off"
                         dir="ltr"
                     />
                 </div>
@@ -37,7 +38,6 @@
                 <div>
                     <span class="text-xs text-cyan-400 font-bold uppercase tracking-wider">بەخێربێیت بۆ پۆرتاڵەکەت</span>
                     <h2 class="text-2xl sm:text-3xl font-black text-white mt-1">{{ $client->business_name ?? $client->name }}</h2>
-                    <p class="text-xs text-slate-400 mt-1">کۆدی پۆرتاڵ: <strong class="text-slate-200 font-mono" dir="ltr">{{ $client->portal_access_code }}</strong></p>
                 </div>
 
                 <div class="flex items-center gap-3">
@@ -101,7 +101,14 @@
                                 </div>
 
                                 <div class="flex items-center gap-3">
-                                    <span class="font-mono font-bold text-white text-sm" dir="ltr">{{ \App\Support\Money::format((float) $inv->total, $inv->currency) }}</span>
+                                    <div class="text-end">
+                                        <span class="font-mono font-bold text-white text-sm" dir="ltr">{{ \App\Support\Money::format((float) $inv->total, $inv->currency) }}</span>
+                                        @if($inv->status !== 'cancelled' && $inv->remaining_balance > 0)
+                                            <div class="text-[11px] font-bold {{ $inv->is_overdue ? 'text-rose-400' : 'text-amber-400' }}">ماوە: <span dir="ltr">{{ \App\Support\Money::format($inv->remaining_balance, $inv->currency) }}</span></div>
+                                        @else
+                                            <div class="text-[11px] text-slate-400">{{ $inv->display_status_label }}</div>
+                                        @endif
+                                    </div>
                                     <button wire:click="viewInvoice({{ $inv->id }})" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg transition">
                                         بینین و داگرتن
                                     </button>
@@ -188,7 +195,11 @@
                         <div class="space-y-2 text-xs">
                             @foreach($selectedInvoice->items as $item)
                                 <div class="flex justify-between p-2 bg-slate-50 rounded-lg">
-                                    <span>{{ $item->description }}</span>
+                                    <span>{{ $item->description }}
+                                        @if($item->start_date && $item->expiry_date)
+                                            <span class="block text-[11px] text-slate-500" dir="ltr">{{ $item->start_date->format('Y-m-d') }} → {{ $item->expiry_date->format('Y-m-d') }}</span>
+                                        @endif
+                                    </span>
                                     <span class="font-mono font-bold" dir="ltr">{{ \App\Support\Money::format((float) $item->total_price, $selectedInvoice->currency) }}</span>
                                 </div>
                             @endforeach
@@ -197,6 +208,21 @@
                         <div class="flex justify-between text-base font-black border-t pt-3">
                             <span>کۆی گشتی:</span>
                             <span class="font-mono text-indigo-600" dir="ltr">{{ \App\Support\Money::format((float) $selectedInvoice->total, $selectedInvoice->currency) }}</span>
+                        </div>
+                        @if($selectedInvoice->payments->isNotEmpty())
+                            <div class="space-y-1 text-xs">
+                                <div class="font-bold text-slate-600">پارەدانەکان</div>
+                                @foreach($selectedInvoice->payments as $payment)
+                                    <div class="flex justify-between">
+                                        <span class="font-mono text-slate-500" dir="ltr">{{ $payment->paid_on?->format('Y-m-d') ?? '—' }}</span>
+                                        <span class="font-mono font-bold {{ $payment->amount < 0 ? 'text-rose-600' : 'text-emerald-700' }}" dir="ltr">{{ \App\Support\Money::format((float) $payment->amount, $payment->currency) }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+                        <div class="flex justify-between text-sm font-bold">
+                            <span>ماوە:</span>
+                            <span class="font-mono {{ $selectedInvoice->remaining_balance > 0 ? 'text-amber-600' : 'text-emerald-600' }}" dir="ltr">{{ \App\Support\Money::format(max(0, $selectedInvoice->remaining_balance), $selectedInvoice->currency) }}</span>
                         </div>
                     </div>
 
